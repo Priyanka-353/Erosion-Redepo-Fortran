@@ -16,7 +16,8 @@ PROGRAM Redepo
  !  Control Parameters
  !-----------------------------------------------------------------------------
  real*8, parameter :: moly_mass = 1.593E-22  ! Mass of a molybdenum (or grid material) atom in grams
- integer, parameter :: nionsample = 2.5E5  ! Unitless, amount of CEX ions used for analysis
+ integer, parameter :: nionsample = 1000  ! Unitless, amount of CEX ions used for analysis
+ ! VERY IMPORTANT ^^^^^^ PSB CHANGED WAS 2.5E5 -----------------------------------------------------
  integer, parameter :: degree_of_precision_element_integration=2  ! degree of precision for triangle quadrature for redepo emission site
  real*8, parameter :: erosionStepSize = 25  ! Time step size in hrs
  real*8, parameter :: maxSimulationTime = 8200  ! Time to run the erosion iterations in hours
@@ -78,6 +79,7 @@ PROGRAM Redepo
   CHARACTER (LEN=20) :: step_str  !PSB
   CHARACTER (LEN=50) :: plot_subfolder  !PSB
  CHARACTER (LEN=20) :: plot_name_str !PSB
+ INTEGER,DIMENSION(nionsample) :: ion_reflection_counts !PSB -> added to track number of reflections per ion
  print *, "Variables have been declared" !PSB
  !-----------------------------------------------------------------------------
  !  Read in CEX ion data
@@ -219,13 +221,11 @@ PROGRAM Redepo
    write(113,'("         0",3(",",ES13.6))') vcl3d(1,inode), vcl3d(2,inode), vcl3d(3,inode)
  end do
 
-EROSION: do erosionStep = 1, 5 
+EROSION: do erosionStep = 1, 2 ! PSB: IMPORTANT CHANGED 5 TO 2 
   print *, "----------------------------------------------------------------------" !PSB
   print *, "                          Erosion Step:", erosionStep !PSB
    erosionTime = erosionStep * erosionStepSize
-   !
    !  Store existing surface geometry in arrays(timestep)--save history of surface geometry
-   !
 
    !-----------------------------------------------------------------------------
    !  Select random subset of ions out of npandgions total that hit the pits and grooves pattern
@@ -237,25 +237,47 @@ EROSION: do erosionStep = 1, 5
    do iion = 1, nionsample
      ionsample(iion) = ion(ionindex(iion))
    end do
+
+   print *, "Number of ions chosen to be sampled is nionsample which is", nionsample
    !-----------------------------------------------------------------------------
    !  Sputtering section
    !-----------------------------------------------------------------------------
+   ! PSB: Iterate through each triangular cell on the face of the accelerator grid and set mass_loss of each cell to 0.0
    do icell = 1, nfacetri
      cell(icell)%mass_loss = 0.0d0
    end do
+   !PSB: Reset number of ions that were lost or hit the bottom face
    nlostboys = 0
    nbottomboys = 0
+   ion_reflection_counts = 0 !PSB added 
    open(112, FILE = 'LostBoys')
-   DOION: do iion = 1, nionsample
+   DOION: do iion = 1, nionsample !PSb: Iterate through each of the randomly selected ions
+    ! PSB: This subroutine checks whether a ray (or line) intersects a triangle in 3D space.
+    ! outputs a boolean array indicating whether the ray intersects with each triangle, 
+    ! the distance from the ray origin to the intersection point, 
+    ! barycentric coordinates of the intersection point,
+    ! cartesian coordinates of the intersection point, if requested
      call triangle_ray_intersection (ion(iion)%origin, ion(iion)%dir, vert1, vert2, vert3, intersect, t, u, v, xcoor,borderIn = 'inclusive')
+     
+     ! PSB: Calculates reflection attempts or interactions
+     ! Track an ions reflective path through the domain (Reflections off symmetry boundaries until it hits the sputtering surface, leaves domain, or has reflected max times)
+     ! Track how many times each ion reflected
      do irefl = 1, maxReflections_ions
-       num_hits = count(intersect)
-       impact_tri = findloc(intersect, value = .true.)  ! returns rank 1 array
-       impact_cell = impact_tri(1)                      ! this is a scalar
+       num_hits = count(intersect) !PSB: num_hits is the total number of triangles that the current ion's ray intersected
+       impact_tri = findloc(intersect, value = .true.)  ! PSB: returns indices of all triangles the ray intersected
+       
+       for each value of impact_tri {
+       impact_cell = impact_tri(i) ! PSB: start with the first impact cell
        if (num_hits == 0) then
          ! ion did not strike any surface in domain (small fraction of total at edges or with vz near zero)
          WRITE(112,"(2I8,6E15.6)") iion, irefl, ion(iion)%origin, ion(iion)%dir
          nlostboys = nlostboys + 1
+         !PSB: Example
+         ! If iion = 12345 (ion number), ierefl = 1 (first attempt at tracing this ion and there was no hit)
+         ! ion(iion)%origin = ion starting position like [0.1234..., 0.987654..., 2.500...], similar with direction in x, y, and z
+         ! Lost boys would look like this:
+         ! 12345 1 1.234567E-001 9.876543E-001 2.500000E+000 1.234568E-002 -9.876543E-002 -9.900000E-001
+         ! PSB: I SEE MANY IONS HAVE A NAN DIRECTION - CHECK WHY THAT IS
          exit
        else if (cell(impact_cell)%on_bndry == -1) then
          ! ion left through top of domain (should not happen)
@@ -268,107 +290,122 @@ EROSION: do erosionStep = 1, 5
          exit
        else if (cell(impact_cell)%on_bndry > 0) then
          ! ion hit symmetry boundary (reflect)
+         ! PSB: Vector reflection formula
+         ! reflectedray is a temporary 3 element vector to store the newly calculated reflected direction
          reflectedray = -2 * dot(ion(iion)%dir,cell(impact_cell)%normal) + ion(iion)%dir
+         ! update ion directon to reflected ray
          ion(iion)%dir = reflectedray
+         ion_reflection_counts(iion) = ion_reflection_counts(iion) + 1 !psb added
+         call triangle_ray_intersection ! PSB added because if an ion is reflected, even if we know its direction, we need to know what triangle it will hit
+          do again for impact_tri = findloc(intersect, value = .true.)
        else
          ! ion hit surface (calculate sputtered mass and share to nodes)
-         inc_angle = angle(ion(iion)%dir(:), -1.0d0 * cell(impact_cell)%normal(:))
-         yield = sputter_yield_carbon(ion(iion)%KE, inc_angle)
-         mass_loss = yield * ion(iion)%qCEXion/e * massCarbon
-         !print*, "yield (atoms/ion) = ", yield
-         cell(impact_cell)%mass_loss = cell(impact_cell)%mass_loss + mass_loss
-         node(til(2,impact_cell))%mass_loss = node(til(2,impact_cell))%mass_loss + u(impact_cell) * mass_loss
+         inc_angle = angle(ion(iion)%dir(:), -1.0d0 * cell(impact_cell)%normal(:)) !PSB: incidence angle of ion with respect to surface normal
+         yield = sputter_yield_carbon(ion(iion)%KE, inc_angle) ! PSB: The function returns the sputter yield in atoms per ion, which represents how many atoms of carbon are ejected from the surface when one Xenon ion strikes it.
+         mass_loss = yield * ion(iion)%qCEXion/e * massCarbon ! PSB: Calculate the mass loss due to this single ion impact
+         print*, "yield (atoms/ion) = ", yield
+         cell(impact_cell)%mass_loss = cell(impact_cell)%mass_loss + mass_loss !PSB: Add the mass loss form the current ion impact to total mass_loss accumulated for the specific cell where the triangle was hit
+         
+         ! PSB: Use barycentric interpolation: distribute mass_loss from triangle to its nodes
+         ! u + v + w = 1 where u is for second vertex, v, for third, etc. are weights for eriosion
+         node(til(2,impact_cell))%mass_loss = node(til(2,impact_cell))%mass_loss + u(impact_cell) * mass_loss 
          node(til(3,impact_cell))%mass_loss = node(til(3,impact_cell))%mass_loss + v(impact_cell) * mass_loss
          node(til(1,impact_cell))%mass_loss = node(til(1,impact_cell))%mass_loss + (1 - u(impact_cell) - v(impact_cell)) * mass_loss
          sum = node(til(2,impact_cell))%mass_loss + node(til(3,impact_cell))%mass_loss + &
-           node(til(1,impact_cell))%mass_loss
-         !print*, "node and cell mass losses: ", node(til(2,impact_cell))%mass_loss, node(til(3,impact_cell))%mass_loss, &
-         !  node(til(1,impact_cell))%mass_loss, sum, cell(impact_cell)%mass_loss
+           node(til(1,impact_cell))%mass_loss !PSB sum should be equal to the mass losses distributed to the three nodes of impact_cell, ie, cell(impact_cell)%mass_los
        end if
+       print*, "Ion Number:", iion, "  Triangle Cells the ion hit:", impact_tri, "  Total cell loss:" , cell(impact_cell)%mass_loss
+       }
+
      end do
-   end do DOION
+  end do DOION
 
    close(112)
+
    print*, "No. ions that didn't hit anything: ", nlostboys
    print*, "No. ions that hit the bottom: ", nbottomboys
+   print*, "No. of ions total: ", npt
+
+    OPEN(UNIT=114, FILE='ion_reflection_counts.txt', STATUS='REPLACE') 
+    WRITE(114, '(A)') '# Sampled_Ion_ID Original_Ion_ID Reflection_Count' 
+    DO iion = 1, nionsample ! WRITE(114, '(3I12)') iion, ionindex(iion), ion_reflection_counts(iion) 
+    END DO
+    CLOSE(114)
+    PRINT *, "Ion reflection counts saved to ion_reflection_counts.txt"
+
+
    !-----------------------------------------------------------------------------
    !  Redeposition section
    !-----------------------------------------------------------------------------
    !-----------------------------------------------------------------------------
    !  Geometry update section
    !-----------------------------------------------------------------------------
-   do inode = 1, nfacept
-     node(inode)%vel = node(inode)%mass_loss/simulation_time/(node(inode)%area * densityCarbon) * node(inode)%normal  ! vel is positive inward
-     call ABintegrate(node(inode)%coords, node(inode)%vel, node(inode)%vel_old, erosionStepSize * 3600, node(inode)%firstStep)
-     vcl3d(:,inode) = node(inode)%coords
-     vcl(:,inode) = node(inode)%coords(1:2)
-     node(inode)%vel_old = node(inode)%vel
-   end do
-   print *, "Erosion Time         :", erosionTime !PSB
-   print *, "Node 226 Mass Loss   :", node(226)%mass_loss !PSB
+
+  !  do inode = 1, nfacept
+  !    node(inode)%vel = node(inode)%mass_loss/simulation_time/(node(inode)%area * densityCarbon) * node(inode)%normal  ! vel is positive inward
+  !    call ABintegrate(node(inode)%coords, node(inode)%vel, node(inode)%vel_old, erosionStepSize * 3600, node(inode)%firstStep)
+  !    vcl3d(:,inode) = node(inode)%coords
+  !    vcl(:,inode) = node(inode)%coords(1:2)
+  !    node(inode)%vel_old = node(inode)%vel
+  !  end do
+  !  print *, "Erosion Time         :", erosionTime !PSB
+  !  print *, "Node 226 Mass Loss   :", node(226)%mass_loss !PSB
    
-   ! PSB print *, "Node 226 Coordinates : (", node(226)%coords(1), ",", node(226)%coords(2), ",", node(226)%coords(3), ")" !PSB
-    print *, "Node 226 Coordinates:"
-    print '(A, F10.4)', "  x: ", node(226)%coords(1)! PSB
-    print '(A, F10.4)', "  y: ", node(226)%coords(2)! PSB
-    print '(A, F10.4)', "  z: ", node(226)%coords(3)! PSB
+  !   print *, "Node 226 Coordinates:"
+  !   print '(A, F10.4)', "  x: ", node(226)%coords(1)! PSB
+  !   print '(A, F10.4)', "  y: ", node(226)%coords(2)! PSB
+  !   print '(A, F10.4)', "  z: ", node(226)%coords(3)! PSB
 
 
-   npt = nfacept
-   call triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
-   call mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept)
-   do icell = 1, ntri
-     ! Define the triangle incidence list for cell
-     cell(icell)%til(:) = til(:,icell)
-     ! Define vertices of cell
-     cell(icell)%vert1(:) = vcl3d(:,cell(icell)%til(1))
-     cell(icell)%vert2(:) = vcl3d(:,cell(icell)%til(2))
-     cell(icell)%vert3(:) = vcl3d(:,cell(icell)%til(3))
-     ! Calculate other cell parameters
-     call calc_cell_params(cell(icell), icell)
-   end do
-   do inode = 1,nfacept
-     ! Define coordinates of node from vertex coordinate list
-     node(inode)%coords(:) = vcl3d(:,inode)
-     ! Calculate other node parameters
-     call calc_node_params(node(inode), inode, domain, nfacetri, cell)
-   end do
-   do inode = 1,nfacept
-     write(113,'(F10.2,3(",",ES13.6))') erosionTime, vcl3d(1,inode), vcl3d(2,inode), vcl3d(3,inode)
-   end do
+  !  npt = nfacept
+  !  call triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
+  !  call mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept)
+  !  do icell = 1, ntri
+  !    cell(icell)%til(:) = til(:,icell)! Define the triangle incidence list for cell
+  !    cell(icell)%vert1(:) = vcl3d(:,cell(icell)%til(1)) ! Define vertices of cell
+  !    cell(icell)%vert2(:) = vcl3d(:,cell(icell)%til(2))
+  !    cell(icell)%vert3(:) = vcl3d(:,cell(icell)%til(3))
+  !    call calc_cell_params(cell(icell), icell)! Calculate other cell parameters
+  !  end do
+  !  do inode = 1,nfacept
+
+  !    node(inode)%coords(:) = vcl3d(:,inode)! Define coordinates of node from vertex coordinate list
+
+  !    call calc_node_params(node(inode), inode, domain, nfacetri, cell)! Calculate other node parameters
+  !  end do
+  !  do inode = 1,nfacept
+  !    write(113,'(F10.2,3(",",ES13.6))') erosionTime, vcl3d(1,inode), vcl3d(2,inode), vcl3d(3,inode)
+  !  end do
+
+
+
 
 
    ! ------------------------------ PYTHON PLOTTING -------------------------------
-   ! 1. OVERWRITE the mesh_points_3d.txt with current vcl3d data 
-   OPEN(UNIT=14, FILE='mesh_points_3d.txt', STATUS='REPLACE', ACTION='WRITE') 
-   WRITE(14, '(A)') '# X Y Z (Current Erosion Step)' 
-   DO i = 1, npt 
-    WRITE(14, '(3(ES15.6))') vcl3d(1,i), vcl3d(2,i), vcl3d(3,i) 
-  END DO 
-  CLOSE(14) 
-  ! 2. OVERWRITE the mesh_triangles_3d.txt with current til data 
-  ! (Triangle connectivity usually doesn't change unless mesh is remeshed) 
-  OPEN(UNIT=15, FILE='mesh_triangles_3d.txt', STATUS='REPLACE', ACTION='WRITE') 
-  WRITE(15, '(A)') '# Node1 Node2 Node3 (1-indexed)' 
-  DO i = 1, ntri 
-    WRITE(15, '(3(I8))') til(1,i), til(2,i), til(3,i) 
-  END DO 
-  CLOSE(15)
-   ! Call Python script to generate plot 
-    plot_subfolder = 'mesh_plots' ! Define your desired subfolder name 
-    ! Create the subfolder if it doesn't exist 
-    ! Use platform-independent way if possible, but 'mkdir' is common on Linux/macOS 
-    ! For Windows, 'mkdir' also works. 
-    CALL EXECUTE_COMMAND_LINE("mkdir -p " // TRIM(plot_subfolder), wait=.true., exitstat=j) 
-    IF (j /= 0) THEN 
-      PRINT *, "Warning: Could not create directory ", TRIM(plot_subfolder), ". Error code: ", j 
-      PRINT *, "Plot will be saved in the current directory instead." 
-      plot_subfolder = '.' ! Fallback to current directory 
-    END IF ! Convert the integer 'erosionStep' to a string 
-    WRITE(step_str, '(I0)') erosionStep ! I0 format specifier for no leading/trailing spaces
-    plot_name_str = "erosion_step_" // TRIM(step_str)
-    command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(plot_name_str) 
-    CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
+
+  !  OPEN(UNIT=14, FILE='mesh_points_3d.txt', STATUS='REPLACE', ACTION='WRITE') 
+  !  WRITE(14, '(A)') '# X Y Z (Current Erosion Step)' 
+  !  DO i = 1, npt 
+  !   WRITE(14, '(3(ES15.6))') vcl3d(1,i), vcl3d(2,i), vcl3d(3,i) 
+  ! END DO 
+  ! CLOSE(14) 
+  ! OPEN(UNIT=15, FILE='mesh_triangles_3d.txt', STATUS='REPLACE', ACTION='WRITE') 
+  ! WRITE(15, '(A)') '# Node1 Node2 Node3 (1-indexed)' 
+  ! DO i = 1, ntri 
+  !   WRITE(15, '(3(I8))') til(1,i), til(2,i), til(3,i) 
+  ! END DO 
+  ! CLOSE(15)
+  !   plot_subfolder = 'mesh_plots' 
+  !   CALL EXECUTE_COMMAND_LINE("mkdir -p " // TRIM(plot_subfolder), wait=.true., exitstat=j) 
+  !   IF (j /= 0) THEN 
+  !     PRINT *, "Warning: Could not create directory ", TRIM(plot_subfolder), ". Error code: ", j 
+  !     PRINT *, "Plot will be saved in the current directory instead." 
+  !     plot_subfolder = '.' ! Fallback to current directory 
+  !   END IF ! Convert the integer 'erosionStep' to a string 
+  !   WRITE(step_str, '(I0)') erosionStep ! I0 format specifier for no leading/trailing spaces
+  !   plot_name_str = "erosion_step_" // TRIM(step_str)
+  !   command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(plot_name_str) 
+  !   CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
 
  end do EROSION
  !-----------------------------------------------------------------------------
@@ -399,8 +436,6 @@ subroutine randperm(x, n, k)
  integer :: i, j
  real*8 :: r, t
 
-
-
  do j = 1, k
    call random_seed()
    call random_number(r)
@@ -409,8 +444,6 @@ subroutine randperm(x, n, k)
    x(j) = x(i)
    x(i) = t
  end do
-
-
 
  return
 end subroutine randperm
