@@ -122,7 +122,6 @@ module iomesh_mod
       rewind(10)
       i = 1
       IOstatus = 0
-      print *, "Readched Stage 1"
       do
         read(10, IOSTAT=IOstatus) ray(i)%azim_angle, ray(i)%polar_angle, ray(i)%weight 
         if (IOstatus == 0) then ! Read until end of file !PSB
@@ -134,21 +133,18 @@ module iomesh_mod
             ray(i)%coords(2) = sin(ray(i)%azim_angle) * sin(ray(i)%polar_angle) !PSB
             ray(i)%coords(3) = cos(ray(i)%polar_angle) !PSB
             i = i + 1
-            print *, "Readched If 1"
           end if
 
         else if (IOstatus > 0) then
-          print *, "Readched If 2"
           print*, "Error reading Lebedev ray points"
           exit ! PSB
 
         else ! End of file reached
-          print *, "Readched End of File"
           nray = i - 1 !PSB
           exit
         end if
       end do
-      print *, "read lebedev file"
+      print *, "Read lebedev file"
       close(10)
     end subroutine read_lebedev_file
 
@@ -279,7 +275,8 @@ module iomesh_mod
     end subroutine read_ion_file
 
   !*******************************************************************************
-    subroutine mesh_flat_surface(domain, npt, vcl, vcl3d, maxntri, nfacept)
+    ! PSB ADDED ACCEL_THICKNESS
+    subroutine mesh_flat_surface(domain, npt, vcl, vcl3d, maxntri, nfacept, accel_thickness)
     !-----------------------------------------------------------------------------
     !  Uses the geometry data in domain structure to generate points on downstream
     !  surface of the accel grid.  Assumes that the surface is flat (beginning of
@@ -309,7 +306,7 @@ module iomesh_mod
       integer, intent(in) :: maxntri
       integer, intent(out) :: nfacept
 
-      integer :: i, j
+      integer :: i, j, k
       integer :: x1numpnts
       integer :: x2numpnts = 8
       integer :: ierr
@@ -324,6 +321,29 @@ module iomesh_mod
       integer, dimension(3, size(til, dim = 2)) :: tnbr
       integer, dimension(size(vcl, dim = 2)) :: stack
       real*8, dimension(2) :: centroid
+
+
+      ! PSB Added the following variables
+      INTEGER, PARAMETER :: REMESH_ITERS = 3 
+      INTEGER :: remeshIters 
+      REAL*8, PARAMETER :: SMALL_TOL = 1.0E-5_8 ! Tolerance for floating point comparisons 
+      REAL*8 :: x_val_1, x_val_2, x_val_3 
+      REAL*8 :: y_val_1, y_val_2, y_val_3 
+      REAL*8 :: z_val_1, z_val_2, z_val_3 
+      REAL*8, DIMENSION(3) :: v12, v13, crossProd, normal_vector 
+      REAL*8 :: bottom_val, xCentre, yCentre 
+      LOGICAL :: isOnWall_major, isOnWall_minor, isOnWall_hypot, isInHole
+      ! Dynamic arrays for elements and flagged_elements (Fortran equivalent of Matlab cell arrays/dynamic lists) 
+      ! We'll use a dynamic array for triangles to filter them 
+      INTEGER, ALLOCATABLE, DIMENSION(:,:) :: TRI_filtered ! To store valid triangles after filtering 
+      INTEGER :: current_ntri_filtered ! Current number of triangles in TRI_filtered 
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: flagged_elements ! To store indices of triangles to be removed 
+      INTEGER :: num_flagged_elements
+      INTEGER :: node_idx1, node_idx2, node_idx3
+      LOGICAL :: is_flagged
+      INTEGER :: row_count
+      real*8 :: accel_thickness
+
       !---------------------------------------------------------------------------
       ! Define points along major and minor walls to build initial grid
       !---------------------------------------------------------------------------
@@ -388,6 +408,7 @@ module iomesh_mod
       !---------------------------------------------------------------------------
       ! Create initial vertex coordinate list and index
       !---------------------------------------------------------------------------
+  REMESH_LOOP: DO remeshIters = 1, REMESH_ITERS !PSB - Resmesh iterations
       do i = 1, npt
         vcl(1,i) = vcl3d(1,i)
         vcl(2,i) = vcl3d(2,i)
@@ -396,25 +417,121 @@ module iomesh_mod
       !---------------------------------------------------------------------------
       ! Generate initial Delaunay triangulation of mesh points
       !---------------------------------------------------------------------------
-      call dtris2 (npt, npt, vcl, ind, numtri, tilist, tnbr, stack, ierr)
+      call dtris2 (npt, maxnpt, vcl, ind, numtri, tilist, tnbr, stack, ierr)
+
+      !---------------------------------------------------------------------------
+      ! PSB CHANGE: Mesh cleaning, identifies and flags undesirable 
+      ! triangles for removal to ensure the mesh accurately represents
+      !---------------------------------------------------------------------------
+
+      ! flagged_elements will temporarily store the row indices of triangles  that we identify as "bad" during the cleaning process.
+      ALLOCATE(flagged_elements(numtri))
+      num_flagged_elements = 0 ! Initialize counter for flagged triangles
+      ! Calculate the Z-coordinate representing the "bottom" of the grid to identify "punch-through" triangles that have incorrectly extended below the intended lower surface of the grid.
+      bottom_val = domain%zmax - accel_thickness 
+
+      TRIANGLE_CLEANING_LOOP: DO row_count = 1, numtri
+          ! Get node indices for the current triangle
+          node_idx1 = tilist(1, row_count)
+          node_idx2 = tilist(2, row_count)
+          node_idx3 = tilist(3, row_count)
+          ! Filter 1: Triangles with zero node indices
+          ! Why: A node index of zero usually indicates an uninitialized or invalid entry.
+          IF (node_idx1 == 0 .OR. node_idx2 == 0 .OR. node_idx3 == 0) THEN
+                    num_flagged_elements = num_flagged_elements + 1
+                    flagged_elements(num_flagged_elements) = row_count
+                    print *, "A triangle had zero node indices"
+                    CYCLE TRIANGLE_CLEANING_LOOP ! Skip to the next triangle
+          END IF
+          ! Filter 2: Triangles where all nodes are on the hypotenuse line
+          ! Why: In this specific grid geometry, there's a defined "hypotenuse" boundary at 30 degrees.
+          ! Get 3D coordinates of the current triangle's nodes      
+          x_val_1 = vcl3d(1, node_idx1)
+          y_val_1 = vcl3d(2, node_idx1)
+          z_val_1 = vcl3d(3, node_idx1)
+          x_val_2 = vcl3d(1, node_idx2)
+          y_val_2 = vcl3d(2, node_idx2)
+          z_val_2 = vcl3d(3, node_idx2)
+          x_val_3 = vcl3d(1, node_idx3)
+          y_val_3 = vcl3d(2, node_idx3)
+          z_val_3 = vcl3d(3, node_idx3)
+          isOnWall_hypot = (ABS(y_val_1 - (x_val_1 * TAN(30.0D0 * PI/180.0D0))) < SMALL_TOL) .AND. &
+                            (ABS(y_val_2 - (x_val_2 * TAN(30.0D0 * PI/180.0D0))) < SMALL_TOL) .AND. &
+                            (ABS(y_val_3 - (x_val_3 * TAN(30.0D0 * PI/180.0D0))) < SMALL_TOL)
+
+          IF (isOnWall_hypot) THEN
+              num_flagged_elements = num_flagged_elements + 1
+              flagged_elements(num_flagged_elements) = row_count
+              CYCLE TRIANGLE_CLEANING_LOOP
+          END IF
+      END DO TRIANGLE_CLEANING_LOOP
+
+      ! Build the new_TRI (TRI_filtered) with only the good elements PSB
+             IF (num_flagged_elements > 0) THEN
+            ! Allocate the new filtered array with just enough space for the good triangles.
+            ALLOCATE(TRI_filtered(3, numtri - num_flagged_elements))
+            current_ntri_filtered = 0
+            NEW_TRI_BUILD_LOOP: DO row_count = 1, numtri
+                is_flagged = .FALSE.
+                ! Check if the current triangle was flagged for removal.
+                DO k = 1, num_flagged_elements
+                    IF (row_count == flagged_elements(k)) THEN
+                        is_flagged = .TRUE.
+                        EXIT ! Found it, no need to check further
+                    END IF
+                END DO
+                IF (.NOT. is_flagged) THEN
+                    ! If not flagged, copy this triangle's node indices to the new filtered list.
+                    current_ntri_filtered = current_ntri_filtered + 1
+                    TRI_filtered(1, current_ntri_filtered) = tilist(1, row_count)
+                    TRI_filtered(2, current_ntri_filtered) = tilist(2, row_count)
+                    TRI_filtered(3, current_ntri_filtered) = tilist(3, row_count)
+                END IF
+            END DO NEW_TRI_BUILD_LOOP
+            DEALLOCATE(TRI_filtered) ! PSB 2
+          END IF
+          DEALLOCATE(flagged_elements)
+
       !---------------------------------------------------------------------------
       ! Refine mesh around pits and grooves region (add points at centroids of
       ! triangular elements from initial triangulation)
       !---------------------------------------------------------------------------
-      do i = 1,numtri
+      !Refine mesh after we know the current mesh is clean
+      MESHREFINE: do i = 1,numtri
+        ! CHECK INVALID NODES
+          node_idx1 = tilist(1, row_count)
+          node_idx2 = tilist(2, row_count)
+          node_idx3 = tilist(3, row_count)
+          
+          IF (node_idx1<1 .OR. &
+              node_idx2<1 .OR. &
+              node_idx3<1 ) THEN
+          print *, "Invalid node index in triangle" ,i,  "with indices " , node_idx1, node_idx2, node_idx3
+          CYCLE MESHREFINE
+          END IF
+
         centroid(1) = (vcl(1,tilist(1,i)) + vcl(1,tilist(2,i)) + vcl(1,tilist(3,i)))/3.0d0
         centroid(2) = (vcl(2,tilist(1,i)) + vcl(2,tilist(2,i)) + vcl(2,tilist(3,i)))/3.0d0
-        if (sqrt(centroid(1)**2 + centroid(2)**2) > 0.8182d0 * domain%xmax) then
-            npt = npt + 1
-            vcl3d(1,npt) = centroid(1)
-            vcl3d(2,npt) = centroid(2)
-            vcl3d(3,npt) = domain%zmax
-            vcl(1,npt) = vcl3d(1,npt)
-            vcl(2,npt) = vcl3d(2,npt)
-            ind(npt) = npt
-        end if
-      end do
-      nfacept = npt     ! Define number of points in accel face mesh
+        ! PSB added to check if the new point will exceed max array size
+
+        IF (npt < SIZE(vcl, DIM = 2)) then
+          if (sqrt(centroid(1)**2 + centroid(2)**2) > 0.8182d0 * domain%xmax) then
+              npt = npt + 1
+              vcl3d(1,npt) = centroid(1)
+              vcl3d(2,npt) = centroid(2)
+              vcl3d(3,npt) = domain%zmax
+              vcl(1,npt) = vcl3d(1,npt)
+              vcl(2,npt) = vcl3d(2,npt)
+              ind(npt) = npt
+          end if
+        ELSE  !PSB
+          print *, "Warning: Max number of points reached during refinement. Cannot add more points." !PSB
+          EXIT REMESH_LOOP
+        END IF
+      end do MESHREFINE
+    end do REMESH_LOOP! End of remesh iters 
+    nfacept = npt     ! Define number of points in accel face mesh
+    
     end subroutine mesh_flat_surface
 
   !*******************************************************************************
@@ -453,7 +570,7 @@ module iomesh_mod
       integer, intent(out) :: nfacetri
       type (cell_type), dimension(:), intent(inout) :: cell
 
-      integer :: i
+      integer :: i, k
       integer :: new_ntri
       integer :: ierr
       integer :: ind(size(vcl, dim = 2))
@@ -552,7 +669,7 @@ module iomesh_mod
       integer, dimension(:,:), intent(inout) :: til
       type (cell_type), dimension(:), intent(inout) :: cell
       integer, intent(inout) :: nfacept
-      integer :: i
+      integer :: i, k
       integer, dimension(size(vcl, dim = 2)) :: ind
       !---------------------------------------------------------------------------
       ! Add vertices and triangles for side walls and top
