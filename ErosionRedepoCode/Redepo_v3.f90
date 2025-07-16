@@ -102,7 +102,7 @@ PROGRAM Redepo
      !---------------------------------------------------------------------------
      ! Save the vertex coordinate list and mesh triangle index list for plotting
      !---------------------------------------------------------------------------
-     open(13, FILE = 'VCL')
+     open(13, FILE = 'VCL') 
      do i = 1,npt
        write(13,*) i, vcl(1,i), vcl(2,i)
      end do
@@ -113,6 +113,24 @@ PROGRAM Redepo
      end do
      close(12)
 
+
+     !--------------------------------------------------------------------------- 
+     ! PSB Save 3D mesh data for Python plotting (new files) 
+     !--------------------------------------------------------------------------- 
+     OPEN(UNIT=14, FILE='mesh_points_3d.txt', STATUS='REPLACE', ACTION='WRITE') 
+     WRITE(14, '(A)') '# X Y Z' ! Header for columns 
+      DO i = 1, npt 
+        WRITE(14, '(3(ES15.6))') vcl3d(1,i), vcl3d(2,i), vcl3d(3,i) 
+      END DO 
+    CLOSE(14) 
+    OPEN(UNIT=15, FILE='mesh_triangles_3d.txt', STATUS='REPLACE', ACTION='WRITE') 
+    WRITE(15, '(A)') '# Node1 Node2 Node3 (1-indexed)' ! Header for columns 
+      DO i = 1, ntri ! Write 1-indexed triangle node IDs 
+        WRITE(15, '(3(I8))') til(1,i), til(2,i), til(3,i) 
+      END DO 
+    CLOSE(15) 
+    CALL EXECUTE_COMMAND_LINE("python plot_mesh.py", wait=.true.) ! Call python file
+    print *, "Python plotting script executed. Check initial_mesh_plot.png"
 
      call mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept)
      do icell = 1, ntri
