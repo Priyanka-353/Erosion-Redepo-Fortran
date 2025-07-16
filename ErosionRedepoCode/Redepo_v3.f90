@@ -73,7 +73,10 @@ PROGRAM Redepo
  real*8, dimension(3, maxntri) :: vert3
  character(:), allocatable :: lebfilename ! PSB
  integer :: nray  !PSB
- real*8 :: accel_thickness
+ real*8 :: accel_thickness !PSB
+ CHARACTER (LEN=256) :: command_string !PSB
+  CHARACTER (LEN=20) :: step_str  !PSB
+  CHARACTER (LEN=50) :: plot_subfolder  !PSB
  print *, "Variables have been declared" !PSB
  !-----------------------------------------------------------------------------
  !  Read in CEX ion data
@@ -129,10 +132,30 @@ PROGRAM Redepo
         WRITE(15, '(3(I8))') til(1,i), til(2,i), til(3,i) 
       END DO 
     CLOSE(15) 
-    CALL EXECUTE_COMMAND_LINE("python plot_mesh.py", wait=.true.) ! Call python file
-    print *, "Python plotting script executed. Check initial_mesh_plot.png"
+    ! Call Python script to generate plot 
+    ! New: Pass erosionStep and create a subfolder for plots 
+    !--------------------------------------------------------------------------- 
+    plot_subfolder = 'initial_mesh_plots' ! Define your desired subfolder name 
+    ! Create the subfolder if it doesn't exist 
+    ! Use platform-independent way if possible, but 'mkdir' is common on Linux/macOS 
+    ! For Windows, 'mkdir' also works. 
+    CALL EXECUTE_COMMAND_LINE("mkdir -p " // TRIM(plot_subfolder), wait=.true., exitstat=j) 
+    IF (j /= 0) THEN 
+      PRINT *, "Warning: Could not create directory ", TRIM(plot_subfolder), ". Error code: ", j 
+      PRINT *, "Plot will be saved in the current directory instead." 
+      plot_subfolder = '.' ! Fallback to current directory 
+    END IF ! Convert the integer 'erosionStep' to a string 
+    WRITE(step_str, '(I0)') erosionStep 
+    ! Construct the command string to pass parameters to Python 
+    ! The Python script will be called with arguments: 
+    ! python plot_mesh.py <output_folder> <step_number> 
+    command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(step_str) 
+    CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
+    !CALL EXECUTE_COMMAND_LINE("python plot_mesh.py", wait=.true.) ! Call python file
+    print *, "Python plotting script executed. Check plot"
 
-     call mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept)
+
+    call mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept)
      do icell = 1, ntri
        vert1(:, icell) = vcl3d(:,til(1,icell))     ! Define vertices of each cell
        vert2(:, icell) = vcl3d(:,til(2,icell))
@@ -172,7 +195,7 @@ PROGRAM Redepo
  !
  !  Load array of Lebedev points used in sphere quadrature
  !
- lebfilename = './ErosionRedepoCode/LebedevRays.txt'
+ lebfilename = './LebedevRays.txt'
  call read_lebedev_file(lebfilename, ray, nray) 
  !
  !  Initialize Stuff
