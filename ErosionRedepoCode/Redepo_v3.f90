@@ -77,6 +77,7 @@ PROGRAM Redepo
  CHARACTER (LEN=256) :: command_string !PSB
   CHARACTER (LEN=20) :: step_str  !PSB
   CHARACTER (LEN=50) :: plot_subfolder  !PSB
+ CHARACTER (LEN=20) :: plot_name_str !PSB
  print *, "Variables have been declared" !PSB
  !-----------------------------------------------------------------------------
  !  Read in CEX ion data
@@ -133,9 +134,7 @@ PROGRAM Redepo
       END DO 
     CLOSE(15) 
     ! Call Python script to generate plot 
-    ! New: Pass erosionStep and create a subfolder for plots 
-    !--------------------------------------------------------------------------- 
-    plot_subfolder = 'initial_mesh_plots' ! Define your desired subfolder name 
+    plot_subfolder = 'mesh_plots' ! Define your desired subfolder name 
     ! Create the subfolder if it doesn't exist 
     ! Use platform-independent way if possible, but 'mkdir' is common on Linux/macOS 
     ! For Windows, 'mkdir' also works. 
@@ -145,14 +144,11 @@ PROGRAM Redepo
       PRINT *, "Plot will be saved in the current directory instead." 
       plot_subfolder = '.' ! Fallback to current directory 
     END IF ! Convert the integer 'erosionStep' to a string 
-    WRITE(step_str, '(I0)') erosionStep 
     ! Construct the command string to pass parameters to Python 
-    ! The Python script will be called with arguments: 
-    ! python plot_mesh.py <output_folder> <step_number> 
-    command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(step_str) 
+    plot_name_str = "pre_boundaries"
+    command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(plot_name_str) 
     CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
-    !CALL EXECUTE_COMMAND_LINE("python plot_mesh.py", wait=.true.) ! Call python file
-    print *, "Python plotting script executed. Check plot"
+
 
 
     call mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept)
@@ -189,13 +185,16 @@ PROGRAM Redepo
      print*, "Improper input for mesh_data_source (must be 0, 1, or 2)"
  end select
 
+ 
+ 
+
  !-----------------------------------------------------------------------------
  !  Start simulation of erosion profiles
  !-----------------------------------------------------------------------------
  !
  !  Load array of Lebedev points used in sphere quadrature
  !
- lebfilename = './LebedevRays.txt'
+ lebfilename = '/LebedevRays.txt'
  call read_lebedev_file(lebfilename, ray, nray) 
  !
  !  Initialize Stuff
@@ -220,8 +219,7 @@ PROGRAM Redepo
    write(113,'("         0",3(",",ES13.6))') vcl3d(1,inode), vcl3d(2,inode), vcl3d(3,inode)
  end do
 
-do erosionStep = 1, 5 
-
+EROSION: do erosionStep = 1, 5 
   print *, "----------------------------------------------------------------------" !PSB
   print *, "                          Erosion Step:", erosionStep !PSB
    erosionTime = erosionStep * erosionStepSize
@@ -248,7 +246,7 @@ do erosionStep = 1, 5
    nlostboys = 0
    nbottomboys = 0
    open(112, FILE = 'LostBoys')
-   do iion = 1, nionsample
+   DOION: do iion = 1, nionsample
      call triangle_ray_intersection (ion(iion)%origin, ion(iion)%dir, vert1, vert2, vert3, intersect, t, u, v, xcoor,borderIn = 'inclusive')
      do irefl = 1, maxReflections_ions
        num_hits = count(intersect)
@@ -288,7 +286,7 @@ do erosionStep = 1, 5
          !  node(til(1,impact_cell))%mass_loss, sum, cell(impact_cell)%mass_loss
        end if
      end do
-   end do
+   end do DOION
 
    close(112)
    print*, "No. ions that didn't hit anything: ", nlostboys
@@ -338,7 +336,41 @@ do erosionStep = 1, 5
    do inode = 1,nfacept
      write(113,'(F10.2,3(",",ES13.6))') erosionTime, vcl3d(1,inode), vcl3d(2,inode), vcl3d(3,inode)
    end do
- end do
+
+
+   ! ------------------------------ PYTHON PLOTTING -------------------------------
+   ! 1. OVERWRITE the mesh_points_3d.txt with current vcl3d data 
+   OPEN(UNIT=14, FILE='mesh_points_3d.txt', STATUS='REPLACE', ACTION='WRITE') 
+   WRITE(14, '(A)') '# X Y Z (Current Erosion Step)' 
+   DO i = 1, npt 
+    WRITE(14, '(3(ES15.6))') vcl3d(1,i), vcl3d(2,i), vcl3d(3,i) 
+  END DO 
+  CLOSE(14) 
+  ! 2. OVERWRITE the mesh_triangles_3d.txt with current til data 
+  ! (Triangle connectivity usually doesn't change unless mesh is remeshed) 
+  OPEN(UNIT=15, FILE='mesh_triangles_3d.txt', STATUS='REPLACE', ACTION='WRITE') 
+  WRITE(15, '(A)') '# Node1 Node2 Node3 (1-indexed)' 
+  DO i = 1, ntri 
+    WRITE(15, '(3(I8))') til(1,i), til(2,i), til(3,i) 
+  END DO 
+  CLOSE(15)
+   ! Call Python script to generate plot 
+    plot_subfolder = 'mesh_plots' ! Define your desired subfolder name 
+    ! Create the subfolder if it doesn't exist 
+    ! Use platform-independent way if possible, but 'mkdir' is common on Linux/macOS 
+    ! For Windows, 'mkdir' also works. 
+    CALL EXECUTE_COMMAND_LINE("mkdir -p " // TRIM(plot_subfolder), wait=.true., exitstat=j) 
+    IF (j /= 0) THEN 
+      PRINT *, "Warning: Could not create directory ", TRIM(plot_subfolder), ". Error code: ", j 
+      PRINT *, "Plot will be saved in the current directory instead." 
+      plot_subfolder = '.' ! Fallback to current directory 
+    END IF ! Convert the integer 'erosionStep' to a string 
+    WRITE(step_str, '(I0)') erosionStep ! I0 format specifier for no leading/trailing spaces
+    plot_name_str = "erosion_step_" // TRIM(step_str)
+    command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(plot_name_str) 
+    CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
+
+ end do EROSION
  !-----------------------------------------------------------------------------
  !  Deallocate dynamic arrays
  !-----------------------------------------------------------------------------

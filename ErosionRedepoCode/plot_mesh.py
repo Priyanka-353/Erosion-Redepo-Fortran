@@ -4,7 +4,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import os
 import sys
 
-def plot_3d_mesh(points_file, triangles_file, output_folder=".", step_number="initial"):
+def plot_3d_mesh(points_file, triangles_file, output_folder=".", file_identifier_str="initial"):
     """
     Reads 3D point and triangle data from text files and generates a 3D plot.
 
@@ -30,6 +30,10 @@ def plot_3d_mesh(points_file, triangles_file, output_folder=".", step_number="in
             points_temp[:, :min(points.shape[1], 3)] = points[:, :min(points.shape[1], 3)]
             points = points_temp
 
+        print(f"Points shape: {points.shape}") 
+        print(f"Last 5 points:\n{points[-5:]}")
+
+
         # Load triangles (vertex indices) - remember Fortran is 1-indexed
         triangles = np.loadtxt(triangles_file, comments='#', dtype=int)
         if triangles.ndim == 1: # Handle case of single triangle
@@ -39,6 +43,9 @@ def plot_3d_mesh(points_file, triangles_file, output_folder=".", step_number="in
             triangles_temp = np.zeros((triangles.shape[0], 3), dtype=int)
             triangles_temp[:, :min(triangles.shape[1], 3)] = triangles[:, :min(triangles.shape[1], 3)]
             triangles = triangles_temp
+
+        print(f"Tri shape: {triangles.shape}") 
+        print(f"Last 5 tri:\n{triangles[-5:]}")
 
         # Convert Fortran 1-indexed to Python 0-indexed for array access
         triangles_0_indexed = triangles - 1
@@ -59,6 +66,7 @@ def plot_3d_mesh(points_file, triangles_file, output_folder=".", step_number="in
         mesh.set_facecolor('lightgreen')
 
         ax.add_collection3d(mesh)
+        ax.scatter(points[:, 0], points[:, 1], points[:, 2], color='red', s=5)
 
         # Optional: Plot individual points if desired
         # ax.scatter(points[:, 0], points[:, 1], points[:, 2], color='red', s=5)
@@ -67,19 +75,24 @@ def plot_3d_mesh(points_file, triangles_file, output_folder=".", step_number="in
         ax.set_ylabel('Y (mm)')
         ax.set_zlabel('Z (mm)')
         ax.set_title('3D Mesh Plot')
+        ax.view_init(elev=30)
 
+        ax.set_xlabel('X (mm)', fontsize=12, labelpad=10) # Increase label font size, add padding 
+        ax.set_ylabel('Y (mm)', fontsize=12, labelpad=10) 
+        ax.set_zlabel('Z (mm)', fontsize=12, labelpad=10)
         # Set equal aspect ratio
-        # ax.set_box_aspect([np.ptp(points[:,0]), np.ptp(points[:,1]), np.ptp(points[:,2])]) # Aspect ratio based on data range
-
-        # Auto-scale to fit data
-        ax.autoscale_view()
-
+        #ax.set_box_aspect([np.ptp(points[:,0]), np.ptp(points[:,1]), np.ptp(points[:,2])]) # Aspect ratio based on data range
+        ax.set_xlim([0.4,1.2])
+        ax.set_ylim([0.1,0.7])
+        ax.set_zlim([1.5,3])
+    
         # Construct the output filename 
         # os.path.join handles different OS path separators (e.g., / vs \) 
-        output_filename = os.path.join(output_folder, f"plot_mesh_{step_number}.png") 
+        output_filename = os.path.join(output_folder, f"plot_mesh_{file_identifier_str}.png") 
         # Save the plot 
         plt.savefig(output_filename, dpi=300, bbox_inches='tight') 
         print(f"Plot saved as {output_filename}") 
+        plt.show()
         plt.close(fig) 
 
     except FileNotFoundError as e:
@@ -100,14 +113,15 @@ if __name__ == "__main__":
     output_folder = "." # Default to current directory
     step_number = "initial" # Default step identifier
 
-    if len(sys.argv) > 1:
-        output_folder = sys.argv[1]
-    if len(sys.argv) > 2:
-        step_number = sys.argv[2]
+    if len(sys.argv) < 3:
+        print("Python mesh funciton called incorrectly")
+        sys.exit(1)
+
+    output_folder = sys.argv[1]
+    file_identifier_str = sys.argv[2]
 
     # Run the plotting function with arguments
-    plot_3d_mesh(points_file, triangles_file, output_folder, step_number)
+    plot_3d_mesh(points_file, triangles_file, output_folder, file_identifier_str)
 
-    print("\n--- Plotting script finished ---")
-    print("Ensure your Fortran program runs first to generate the data files.")
+    print("\n Plotting script finished")
     print(f"Look for plots in '{output_folder}'.")
