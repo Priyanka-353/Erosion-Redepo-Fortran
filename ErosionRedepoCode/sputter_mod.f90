@@ -232,7 +232,7 @@ module sputter_mod
     end function dot
   !*****************************************************************************
 
-    subroutine triangle_ray_intersection (origpt, dirvec, vert1, vert2, vert3, intersect, t, u, v, xcoor, pTypeIn, lTypeIn, borderIn, epsIn, fullReturnIn)
+    subroutine triangle_ray_intersection (ion_idx_in, origpt, dirvec, vert1, vert2, vert3, intersect, t, u, v, xcoor, pTypeIn, lTypeIn, borderIn, epsIn, fullReturnIn)
     !---------------------------------------------------------------------------
     !TRIANGLERAYINTERSECTION Ray/triangle intersection.
     !    INTERSECT = TriangleRayIntersection(ORIG, DIR, VERT1, VERT2, VERT3)
@@ -249,7 +249,7 @@ module sputter_mod
     !
     !   [INTERSECT, T, U, V, XCOOR] = TriangleRayIntersection(...)
     !     Returns:
-    !     * Intersect - boolean array of length N informing which line and
+    !     * Intersect - boolean array of length N (num triangles) informing which line and
     !                 triangle pair intersect
     !     * t   - distance from the ray origin to the intersection point in
     !             units of |dir|. Provided only for line/triangle pair that
@@ -353,7 +353,11 @@ module sputter_mod
     real*8, parameter :: d_qnan = transfer((/ Z'00000000', Z'7FF80000' /),1.0_8)
     real*8 :: zero
 
-
+    ! PSB added input ion_idx_in
+    integer, parameter :: INTERSECT_LOG_UNIT = 20 ! PSB Choose an unused unit number
+    logical, save :: first_intersect_write = .true. ! PSB Flag for writing header
+    integer, dimension(size(vert1, dim=2)) :: intersect_int
+    integer, intent(in) :: ion_idx_in ! New Ion index to be saved
 
     if (present(epsIn)) then
       eps = epsIn
@@ -490,6 +494,32 @@ module sputter_mod
       xcoor(2,:) = vert1(2,:) + edge1(2,:) * u(:) + edge2(2,:) * v(:)
       xcoor(3,:) = vert1(3,:) + edge1(3,:) * u(:) + edge2(3,:) * v(:)
     end where
+
+    ! PSB ------- Added for file writing ----------------
+    ! --- Write intersect array to file ---
+    OPEN(UNIT=INTERSECT_LOG_UNIT, FILE='triangle_intersection_log.txt', &
+         STATUS='OLD', ACTION='WRITE', POSITION='APPEND', IOSTAT=i)
+    IF (i /= 0) THEN ! Check if file exists and can be opened
+        ! If file doesn't exist (e.g., first run or deleted), create it.
+        OPEN(UNIT=INTERSECT_LOG_UNIT, FILE='triangle_intersection_log.txt', &
+             STATUS='REPLACE', ACTION='WRITE', IOSTAT=i)
+        IF (i == 0) THEN
+            WRITE(INTERSECT_LOG_UNIT, '(A)') '# ion_idx, intersect(1), intersect(2), ...'
+            first_intersect_write = .false. ! Reset flag after header write
+        ELSE
+            PRINT *, "Error: Could not open or create triangle_intersection_log.txt (IOSTAT:", i, ")"
+            RETURN ! Exit subroutine if cannot write log
+        END IF
+    ELSE IF (first_intersect_write) THEN
+        first_intersect_write = .false. ! Only write header once per program execution
+    END IF
+    ! Method 1: Convert to integer array (more explicit)
+    intersect_int = merge(1, 0, intersect) ! 1 if .true., 0 if .false.
+    WRITE(INTERSECT_LOG_UNIT, '(I8, A, *(I1, : , ","), I1)') ion_idx_in, ", ", intersect_int(1:N-1), intersect_int(N)
+    ! Format: Ion Index, ", ", followed by each boolean (0 or 1)
+    ! This assumes N (number of triangles) isn't excessively large, otherwise, the line could be very long.
+    CLOSE(INTERSECT_LOG_UNIT)
+
     end subroutine triangle_ray_intersection
 
 end module sputter_mod

@@ -16,7 +16,7 @@ PROGRAM Redepo
  !  Control Parameters
  !-----------------------------------------------------------------------------
  real*8, parameter :: moly_mass = 1.593E-22  ! Mass of a molybdenum (or grid material) atom in grams
- integer, parameter :: nionsample = 1000  ! Unitless, amount of CEX ions used for analysis
+ integer, parameter :: nionsample = 7  ! Unitless, amount of CEX ions used for analysis
  ! VERY IMPORTANT ^^^^^^ PSB CHANGED WAS 2.5E5 -----------------------------------------------------
  integer, parameter :: degree_of_precision_element_integration=2  ! degree of precision for triangle quadrature for redepo emission site
  real*8, parameter :: erosionStepSize = 25  ! Time step size in hrs
@@ -30,9 +30,7 @@ PROGRAM Redepo
  type (ion_type), dimension(nionsample) :: ionsample
  character(LEN = 50) :: ionfilename
  integer, parameter :: nerosionSteps = ceiling(maxSimulationTime/erosionStepSize) + 1
-
  real*8, dimension(maxnpt) :: delta_x_old, delta_y_old, delta_z_old
-
 
  integer :: erosionStep
  real*8 :: erosionTime
@@ -97,14 +95,12 @@ PROGRAM Redepo
  !-----------------------------------------------------------------------------
  !  Setup initial grid
  !-----------------------------------------------------------------------------
+
  select case (mesh_data_source)
    case (0)    !  Generate mesh for initial flat accel grid face
-     call mesh_flat_surface(domain, npt, vcl, vcl3d, maxntri, nfacept, accel_thickness)
-     call triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
-     PRINT *, "Number of points (npt): ", npt 
-     PRINT *, "Number of triangles (ntri): ", ntri 
-     PRINT *, "Number of face points (nfacept): ", nfacept 
-     PRINT *, "Maximum allowed triangles (maxntri): ", maxntri
+    call mesh_flat_surface(domain, npt, vcl, vcl3d, maxntri, nfacept, accel_thickness)
+    call triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
+    
      !---------------------------------------------------------------------------
      ! Save the vertex coordinate list and mesh triangle index list for plotting
      !---------------------------------------------------------------------------
@@ -118,40 +114,7 @@ PROGRAM Redepo
        WRITE(12,*) til(1,i), til(2,i), til(3,i)
      end do
      close(12)
-
-
-     !--------------------------------------------------------------------------- 
-     ! PSB Save 3D mesh data for Python plotting (new files) 
-     !--------------------------------------------------------------------------- 
-     OPEN(UNIT=14, FILE='mesh_points_3d.txt', STATUS='REPLACE', ACTION='WRITE') 
-     WRITE(14, '(A)') '# X Y Z' ! Header for columns 
-      DO i = 1, npt 
-        WRITE(14, '(3(ES15.6))') vcl3d(1,i), vcl3d(2,i), vcl3d(3,i) 
-      END DO 
-    CLOSE(14) 
-    OPEN(UNIT=15, FILE='mesh_triangles_3d.txt', STATUS='REPLACE', ACTION='WRITE') 
-    WRITE(15, '(A)') '# Node1 Node2 Node3 (1-indexed)' ! Header for columns 
-      DO i = 1, ntri ! Write 1-indexed triangle node IDs 
-        WRITE(15, '(3(I8))') til(1,i), til(2,i), til(3,i) 
-      END DO 
-    CLOSE(15) 
-    ! Call Python script to generate plot 
-    plot_subfolder = 'mesh_plots' ! Define your desired subfolder name 
-    ! Create the subfolder if it doesn't exist 
-    ! Use platform-independent way if possible, but 'mkdir' is common on Linux/macOS 
-    ! For Windows, 'mkdir' also works. 
-    CALL EXECUTE_COMMAND_LINE("mkdir -p " // TRIM(plot_subfolder), wait=.true., exitstat=j) 
-    IF (j /= 0) THEN 
-      PRINT *, "Warning: Could not create directory ", TRIM(plot_subfolder), ". Error code: ", j 
-      PRINT *, "Plot will be saved in the current directory instead." 
-      plot_subfolder = '.' ! Fallback to current directory 
-    END IF ! Convert the integer 'erosionStep' to a string 
-    ! Construct the command string to pass parameters to Python 
-    plot_name_str = "pre_boundaries"
-    command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(plot_name_str) 
-    CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
-
-
+     
 
     call mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept)
      do icell = 1, ntri
@@ -187,8 +150,11 @@ PROGRAM Redepo
      print*, "Improper input for mesh_data_source (must be 0, 1, or 2)"
  end select
 
- 
- 
+  PRINT *, "Number of points (npt): ", npt 
+  PRINT *, "Maximum allowed points (maxnpt): ", maxnpt
+  PRINT *, "Number of triangles (ntri): ", ntri 
+  PRINT *, "Number of face points (nfacept): ", nfacept 
+  PRINT *, "Maximum allowed triangles (maxntri): ", maxntri
 
  !-----------------------------------------------------------------------------
  !  Start simulation of erosion profiles
@@ -211,17 +177,42 @@ PROGRAM Redepo
  delta_x_old = vcl(1,:)
  delta_y_old = vcl(1,:)
  delta_z_old = vcl(1,:)
+
+ 
+ !---------------------------------------------------------------------------
+  ! UPDATE the vertex coordinate list and mesh triangle index list for plotting
+  !---------------------------------------------------------------------------
+ open(113, FILE = 'VCL3D')
+ ! header write(113,*) "time, x, y, z"
+ do inode = 1,nfacept
+   write(113,'("         0",3(",",ES13.6))') vcl3d(1,inode), vcl3d(2,inode), vcl3d(3,inode)
+ end do
+ close(113)
+
+!---------------------------------------------------------------------------
+! PSB Save 3D mesh data for Python plotting (now reads VCL3D and Triangles directly)
+!---------------------------------------------------------------------------
+! No need to open/write mesh_points_3d.txt and mesh_triangles_3d.txt anymore
+! Since the Python script will read VCL3D and Triangles
+plot_subfolder = 'mesh_plots'
+CALL EXECUTE_COMMAND_LINE("mkdir -p " // TRIM(plot_subfolder), wait=.true., exitstat=j)
+IF (j /= 0) THEN
+    PRINT *, "Warning: Could not create directory ", TRIM(plot_subfolder), ". Error code: ", j
+    PRINT *, "Plot will be saved in the current directory instead."
+    plot_subfolder = '.'
+END IF
+plot_name_str = "post_boundaries" ! Identifier for the plot filename
+! Command to call the Python script, passing the output folder and plot identifier
+command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(plot_name_str)
+CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
+! ---------------------------------------------------------------------------
+
  !
  !  Erosion iteration loop
  !
  print*, "Starting erosion iterations..!"
- open(113, FILE = 'VCL3D')
- write(113,*) "time, x, y, z"
- do inode = 1,nfacept
-   write(113,'("         0",3(",",ES13.6))') vcl3d(1,inode), vcl3d(2,inode), vcl3d(3,inode)
- end do
 
-EROSION: do erosionStep = 1, 2 ! PSB: IMPORTANT CHANGED 5 TO 2 
+EROSION: do erosionStep = 1, 1 ! PSB: IMPORTANT CHANGED 5 TO 1 
   print *, "----------------------------------------------------------------------" !PSB
   print *, "                          Erosion Step:", erosionStep !PSB
    erosionTime = erosionStep * erosionStepSize
@@ -250,88 +241,27 @@ EROSION: do erosionStep = 1, 2 ! PSB: IMPORTANT CHANGED 5 TO 2
    nlostboys = 0
    nbottomboys = 0
    ion_reflection_counts = 0 !PSB added 
-   open(112, FILE = 'LostBoys')
+   open(112, FILE = 'IonInfo')
+   WRITE(112, '(A)') '# Ion/Behav, Current_Refl_Count, Origin_X, Origin_Y, Origin_Z, Dir_X, Dir_Y, Dir_Z' !Header - PSB
    DOION: do iion = 1, nionsample !PSb: Iterate through each of the randomly selected ions
-    ! PSB: This subroutine checks whether a ray (or line) intersects a triangle in 3D space.
-    ! outputs a boolean array indicating whether the ray intersects with each triangle, 
-    ! the distance from the ray origin to the intersection point, 
-    ! barycentric coordinates of the intersection point,
-    ! cartesian coordinates of the intersection point, if requested
-     call triangle_ray_intersection (ion(iion)%origin, ion(iion)%dir, vert1, vert2, vert3, intersect, t, u, v, xcoor,borderIn = 'inclusive')
-     
-     ! PSB: Calculates reflection attempts or interactions
-     ! Track an ions reflective path through the domain (Reflections off symmetry boundaries until it hits the sputtering surface, leaves domain, or has reflected max times)
-     ! Track how many times each ion reflected
-     do irefl = 1, maxReflections_ions
-       num_hits = count(intersect) !PSB: num_hits is the total number of triangles that the current ion's ray intersected
-       impact_tri = findloc(intersect, value = .true.)  ! PSB: returns indices of all triangles the ray intersected
-       
-       for each value of impact_tri {
-       impact_cell = impact_tri(i) ! PSB: start with the first impact cell
-       if (num_hits == 0) then
-         ! ion did not strike any surface in domain (small fraction of total at edges or with vz near zero)
-         WRITE(112,"(2I8,6E15.6)") iion, irefl, ion(iion)%origin, ion(iion)%dir
-         nlostboys = nlostboys + 1
-         !PSB: Example
-         ! If iion = 12345 (ion number), ierefl = 1 (first attempt at tracing this ion and there was no hit)
-         ! ion(iion)%origin = ion starting position like [0.1234..., 0.987654..., 2.500...], similar with direction in x, y, and z
-         ! Lost boys would look like this:
-         ! 12345 1 1.234567E-001 9.876543E-001 2.500000E+000 1.234568E-002 -9.876543E-002 -9.900000E-001
-         ! PSB: I SEE MANY IONS HAVE A NAN DIRECTION - CHECK WHY THAT IS
-         exit
-       else if (cell(impact_cell)%on_bndry == -1) then
-         ! ion left through top of domain (should not happen)
-         print*, "ion number ", iion, "left through top of domain (should not happen)"
-         exit
-       else if (cell(impact_cell)%on_bndry == -2) then
-         ! ion hit bottom of domain (should only happen after punch-through)
-         ! print*, "ion number ", i, "hit bottom of domain (should only happen after punch-through)"
-         nbottomboys = nbottomboys + 1
-         exit
-       else if (cell(impact_cell)%on_bndry > 0) then
-         ! ion hit symmetry boundary (reflect)
-         ! PSB: Vector reflection formula
-         ! reflectedray is a temporary 3 element vector to store the newly calculated reflected direction
-         reflectedray = -2 * dot(ion(iion)%dir,cell(impact_cell)%normal) + ion(iion)%dir
-         ! update ion directon to reflected ray
-         ion(iion)%dir = reflectedray
-         ion_reflection_counts(iion) = ion_reflection_counts(iion) + 1 !psb added
-         call triangle_ray_intersection ! PSB added because if an ion is reflected, even if we know its direction, we need to know what triangle it will hit
-          do again for impact_tri = findloc(intersect, value = .true.)
-       else
-         ! ion hit surface (calculate sputtered mass and share to nodes)
-         inc_angle = angle(ion(iion)%dir(:), -1.0d0 * cell(impact_cell)%normal(:)) !PSB: incidence angle of ion with respect to surface normal
-         yield = sputter_yield_carbon(ion(iion)%KE, inc_angle) ! PSB: The function returns the sputter yield in atoms per ion, which represents how many atoms of carbon are ejected from the surface when one Xenon ion strikes it.
-         mass_loss = yield * ion(iion)%qCEXion/e * massCarbon ! PSB: Calculate the mass loss due to this single ion impact
-         print*, "yield (atoms/ion) = ", yield
-         cell(impact_cell)%mass_loss = cell(impact_cell)%mass_loss + mass_loss !PSB: Add the mass loss form the current ion impact to total mass_loss accumulated for the specific cell where the triangle was hit
-         
-         ! PSB: Use barycentric interpolation: distribute mass_loss from triangle to its nodes
-         ! u + v + w = 1 where u is for second vertex, v, for third, etc. are weights for eriosion
-         node(til(2,impact_cell))%mass_loss = node(til(2,impact_cell))%mass_loss + u(impact_cell) * mass_loss 
-         node(til(3,impact_cell))%mass_loss = node(til(3,impact_cell))%mass_loss + v(impact_cell) * mass_loss
-         node(til(1,impact_cell))%mass_loss = node(til(1,impact_cell))%mass_loss + (1 - u(impact_cell) - v(impact_cell)) * mass_loss
-         sum = node(til(2,impact_cell))%mass_loss + node(til(3,impact_cell))%mass_loss + &
-           node(til(1,impact_cell))%mass_loss !PSB sum should be equal to the mass losses distributed to the three nodes of impact_cell, ie, cell(impact_cell)%mass_los
-       end if
-       print*, "Ion Number:", iion, "  Triangle Cells the ion hit:", impact_tri, "  Total cell loss:" , cell(impact_cell)%mass_loss
-       }
-
-     end do
+    CALL trace_ion_path(iion, 0, ion(iion)%origin, ion(iion)%dir, &
+                        nlostboys, nbottomboys, ion_reflection_counts, &
+                        vert1, vert2, vert3, t, u, v, xcoor, intersect, &
+                        cell, node, til, maxReflections_ions)
   end do DOION
 
-   close(112)
+  close(112)
 
    print*, "No. ions that didn't hit anything: ", nlostboys
    print*, "No. ions that hit the bottom: ", nbottomboys
-   print*, "No. of ions total: ", npt
+   print*, "No. of ions total (including ions that hit bottom or nothin): ", npt
 
-    OPEN(UNIT=114, FILE='ion_reflection_counts.txt', STATUS='REPLACE') 
-    WRITE(114, '(A)') '# Sampled_Ion_ID Original_Ion_ID Reflection_Count' 
-    DO iion = 1, nionsample ! WRITE(114, '(3I12)') iion, ionindex(iion), ion_reflection_counts(iion) 
-    END DO
-    CLOSE(114)
-    PRINT *, "Ion reflection counts saved to ion_reflection_counts.txt"
+    ! OPEN(UNIT=114, FILE='ion_reflection_counts.txt', STATUS='REPLACE') 
+    ! WRITE(114, '(A)') '# Sampled_Ion_ID Original_Ion_ID Reflection_Count' 
+    ! DO iion = 1, nionsample ! WRITE(114, '(3I12)') iion, ionindex(iion), ion_reflection_counts(iion) 
+    ! END DO
+    ! CLOSE(114)
+    ! PRINT *, "Ion reflection counts saved to ion_reflection_counts.txt"
 
 
    !-----------------------------------------------------------------------------
@@ -378,47 +308,49 @@ EROSION: do erosionStep = 1, 2 ! PSB: IMPORTANT CHANGED 5 TO 2
   !  end do
 
 
+!---------------------------------------------------------------------------
+! PSB Save 3D mesh data for Python plotting (now reads VCL3D and Triangles directly)
+!---------------------------------------------------------------------------
+! No need to open/write mesh_points_3d.txt and mesh_triangles_3d.txt anymore
+! Since the Python script will read VCL3D and Triangles
+
+plot_subfolder = 'mesh_plots'
+CALL EXECUTE_COMMAND_LINE("mkdir -p " // TRIM(plot_subfolder), wait=.true., exitstat=j)
+IF (j /= 0) THEN
+    PRINT *, "Warning: Could not create directory ", TRIM(plot_subfolder), ". Error code: ", j
+    PRINT *, "Plot will be saved in the current directory instead."
+    plot_subfolder = '.'
+END IF
+plot_name_str = "post_erosion" ! Identifier for the plot filename
+! Command to call the Python script, passing the output folder and plot identifier
+command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(plot_name_str)
+CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
+! ---------------------------------------------------------------------------
 
 
+  !----------------------------------------------------------------------------- 
+  ! PSB Save on_bndry values for each cell to a file 
+  !----------------------------------------------------------------------------- 
+  OPEN(UNIT=90, FILE='cell_bndry_values.txt', STATUS='REPLACE', ACTION='WRITE', IOSTAT=i) 
+  IF (i /= 0) THEN 
+    PRINT *, "Error: Could not open cell_on_bndry_values.txt for writing (IOSTAT:", i, ")" 
+  ELSE 
+    WRITE(90, '(A)') '# Cell_ID, On_Boundary_Value' 
+    DO icell = 1, ntri 
+      ! Assuming 'cell' is accessible here and 'ntri' holds the actual number of active cells 
+      WRITE(90, '(I8, A, I4)') icell, ", ", cell(icell)%on_bndry 
+    END DO 
+    CLOSE(90) 
+      PRINT *, "Cell boundary values saved to cell_on_bndry_values.txt" 
+  END IF
 
-   ! ------------------------------ PYTHON PLOTTING -------------------------------
-
-  !  OPEN(UNIT=14, FILE='mesh_points_3d.txt', STATUS='REPLACE', ACTION='WRITE') 
-  !  WRITE(14, '(A)') '# X Y Z (Current Erosion Step)' 
-  !  DO i = 1, npt 
-  !   WRITE(14, '(3(ES15.6))') vcl3d(1,i), vcl3d(2,i), vcl3d(3,i) 
-  ! END DO 
-  ! CLOSE(14) 
-  ! OPEN(UNIT=15, FILE='mesh_triangles_3d.txt', STATUS='REPLACE', ACTION='WRITE') 
-  ! WRITE(15, '(A)') '# Node1 Node2 Node3 (1-indexed)' 
-  ! DO i = 1, ntri 
-  !   WRITE(15, '(3(I8))') til(1,i), til(2,i), til(3,i) 
-  ! END DO 
-  ! CLOSE(15)
-  !   plot_subfolder = 'mesh_plots' 
-  !   CALL EXECUTE_COMMAND_LINE("mkdir -p " // TRIM(plot_subfolder), wait=.true., exitstat=j) 
-  !   IF (j /= 0) THEN 
-  !     PRINT *, "Warning: Could not create directory ", TRIM(plot_subfolder), ". Error code: ", j 
-  !     PRINT *, "Plot will be saved in the current directory instead." 
-  !     plot_subfolder = '.' ! Fallback to current directory 
-  !   END IF ! Convert the integer 'erosionStep' to a string 
-  !   WRITE(step_str, '(I0)') erosionStep ! I0 format specifier for no leading/trailing spaces
-  !   plot_name_str = "erosion_step_" // TRIM(step_str)
-  !   command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(plot_name_str) 
-  !   CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
-
- end do EROSION
+END DO EROSION
  !-----------------------------------------------------------------------------
  !  Deallocate dynamic arrays
  !-----------------------------------------------------------------------------
  deallocate(ion)
  close(113)
-
-
-
-end program Redepo
-
-
+ contains
 
 subroutine randperm(x, n, k)
  !******************************************************************************
@@ -427,9 +359,6 @@ subroutine randperm(x, n, k)
  !
  !******************************************************************************
  implicit none
-
-
-
  integer, intent(inout), dimension(*) :: x
  integer, intent(in) :: n  ! total number of objects
  integer, intent(in) :: k  ! number of objects in random permutation
@@ -444,6 +373,179 @@ subroutine randperm(x, n, k)
    x(j) = x(i)
    x(i) = t
  end do
-
  return
 end subroutine randperm
+
+ ! >>> PSB WROTE THIS SUBROUTINE: trace_ion_path <<<
+!******************************************************************************
+! RECURSIVE SUBROUTINE: trace_ion_path
+! This subroutine simulates the path of a single ion through the simulation
+! domain, handling reflections off symmetry boundaries and calculating
+! sputtering events. It uses recursion to manage the reflection chain.
+!
+! Arguments:
+!   iion_idx          (INTENT(IN))    : The original index of the ion in the sampled bundle (1 to nionsample).
+!   current_refl_count(INTENT(IN))    : The number of reflections this ion has already undergone in this path trace.
+!   ion_current_origin(INTENT(INOUT)) : The current 3D position of the ion (updates on reflection).
+!   ion_current_dir   (INTENT(INOUT)) : The current 3D direction vector of the ion (updates on reflection).
+!   nlostboys         (INTENT(INOUT)) : Counter for ions that leave the domain without hitting anything.
+!   nbottomboys       (INTENT(INOUT)) : Counter for ions that hit the bottom boundary.
+!   ion_refl_counts_arr(INTENT(INOUT)): Array to store total reflections for each sampled ion.
+!   vert1, vert2, vert3 (INTENT(IN))  : 3D coordinates of triangle vertices (defines the mesh).
+!   t, u, v, xcoor, intersect (INTENT(OUT)): Outputs from triangle_ray_intersection.
+!                                         Note: these are temporary and get overwritten in recursive calls.
+!   cell              (INTENT(INOUT)) : Array of cell_type structures (contains mass_loss accumulators, normals, etc.).
+!                                         Mass loss is accumulated here.
+!   node              (INTENT(INOUT)) : Array of node_type structures (contains mass_loss accumulators).
+!                                         Mass loss is accumulated here.
+!   til               (INTENT(IN))    : Triangle Incidence List (node indices for each triangle).
+!   max_reflections   (INTENT(IN))    : Maximum allowed reflections for an ion.
+!
+! External Functions/Subroutines Used:
+!   triangle_ray_intersection (from iomesh_mod or sputter_mod)
+!   count (Fortran intrinsic)
+!   findloc (Fortran intrinsic)
+!   dot (Fortran intrinsic)
+!   angle (from sputter_mod)
+!   sputter_yield_carbon (from sputter_mod)
+!******************************************************************************
+RECURSIVE SUBROUTINE trace_ion_path(iion_idx, current_refl_count, &
+                                   ion_current_origin, ion_current_dir, &
+                                   nlostboys, nbottomboys, ion_refl_counts_arr, &
+                                   vert1, vert2, vert3, t, u, v, xcoor, intersect, &
+                                   cell, node, til, max_reflections)
+    IMPLICIT NONE
+
+    ! Arguments
+    INTEGER, INTENT(IN) :: iion_idx
+    INTEGER, INTENT(IN) :: current_refl_count
+    REAL*8, DIMENSION(3), INTENT(INOUT) :: ion_current_origin ! Position can update on reflection
+    REAL*8, DIMENSION(3), INTENT(INOUT) :: ion_current_dir    ! Direction updates on reflection
+    INTEGER, INTENT(INOUT) :: nlostboys
+    INTEGER, INTENT(INOUT) :: nbottomboys
+    INTEGER, DIMENSION(*) , INTENT(INOUT) :: ion_refl_counts_arr ! Array to update for this ion_idx
+
+    ! Mesh data (passed from main program)
+    REAL*8, DIMENSION(3, maxntri), INTENT(IN) :: vert1, vert2, vert3
+    INTEGER, DIMENSION(3, maxntri), INTENT(IN) :: til
+    TYPE(cell_type), DIMENSION(maxntri), INTENT(INOUT) :: cell ! Mass loss accumulated
+    TYPE(node_type), DIMENSION(maxnpt), INTENT(INOUT) :: node   ! Mass loss accumulated
+
+    ! Outputs from triangle_ray_intersection (local to this call, or passed through)
+    REAL*8, DIMENSION(maxntri), INTENT(OUT) :: t, u, v
+    REAL*8, DIMENSION(3, maxntri), INTENT(OUT) :: xcoor
+    LOGICAL, DIMENSION(maxntri), INTENT(OUT) :: intersect
+
+    ! Parameters
+    INTEGER, INTENT(IN) :: max_reflections
+    ! Accessing global parameters from host scope (Redepo program)
+    ! These are parameters, so they are constant and can be accessed directly.
+    ! If they were variables, they would need to be passed as arguments or put in a module.
+    REAL*8, PARAMETER :: e = 1.60217662E-19
+    REAL*8, PARAMETER :: massCarbon = 1.994307e-23
+    REAL*8, PARAMETER :: densityCarbon = 0.0022
+
+    ! Local variables
+    INTEGER :: num_hits
+    INTEGER, DIMENSION(1) :: impact_tri_arr
+    INTEGER :: impact_cell
+    REAL*8 :: inc_angle
+    REAL*8 :: yield, mass_loss
+    REAL*8, DIMENSION(3) :: reflectedray
+
+    ! Base Case 1: Exceeded maximum reflections
+    IF (current_refl_count >= max_reflections) THEN
+        ! This ion's path is terminated as it has reflected too many times.
+        ! Treat as a "lost boy" for practical purposes if it hasn't hit a sputtering surface.
+        WRITE(112,"(2I8,6E15.6)") iion_idx, current_refl_count, ion_current_origin, ion_current_dir
+        RETURN ! Exit the recursive call
+    END IF
+
+    ! Perform ray-triangle intersection for the current ion state
+    CALL triangle_ray_intersection(iion_idx, ion_current_origin, ion_current_dir, &
+                                  vert1, vert2, vert3, intersect, t, u, v, xcoor, &
+                                  borderIn = 'inclusive')
+
+    num_hits = COUNT(intersect)
+    print *, "Num hits:" , num_hits
+    ! Find the closest intersected triangle.
+    ! Assuming triangle_ray_intersection or a subsequent sort ensures impact_tri_arr(1) is the closest.
+    ! A more robust check would be to find the minimum 't' among all true 'intersect' entries.
+    IF (num_hits > 0) THEN
+        impact_tri_arr = FINDLOC(intersect, VALUE = .TRUE.)
+        impact_cell = impact_tri_arr(1) ! Take the first one found (assumed closest)
+        print *, "Impact Cell:", impact_cell
+    ELSE
+        ! No hits in the current step. This is a base case.
+        ! Ion did not strike any surface in domain (small fraction of total at edges or with vz near zero)
+        WRITE(112,"(A,2I8,6E15.6)") "NO_HIT", iion_idx, current_refl_count, ion_current_origin, ion_current_dir   
+        PRINT*, " ----------------------------- NO HIT , LOST  ----------------------------- "
+        nlostboys = nlostboys + 1
+        RETURN ! Exit the recursive call
+    END IF
+
+    ! Base Case / Recursive Step Logic based on impact type
+    IF (cell(impact_cell)%on_bndry == -1) THEN
+        ! Base Case 2: Ion left through top of domain (should not happen)
+        WRITE(112,"(A,2I8,6E15.6)") "TOP_EXIT", iion_idx, current_refl_count, ion_current_origin, ion_current_dir  
+        PRINT*, "ion number ", iion_idx, "left through top of domain (should not happen)"
+        RETURN ! Exit the recursive call
+    ELSE IF (cell(impact_cell)%on_bndry == -2) THEN
+        ! Base Case 3: Ion hit bottom of domain (should only happen after punch-through)
+        WRITE(112,"(A,2I8,6E15.6)") "PUNCHTHRU", iion_idx, current_refl_count, ion_current_origin, ion_current_dir  
+        nbottomboys = nbottomboys + 1
+        PRINT*, "Ion Number:", iion_idx, "Hit bottom. Reflections:", current_refl_count, &
+                " Cell Mass Loss:", cell(impact_cell)%mass_loss, " Node sum mass Loss:", sum
+        RETURN ! Exit the recursive call
+    ELSE IF (cell(impact_cell)%on_bndry == 0) THEN
+        ! Base Case 4: Ion hit sputtering surface (calculate sputtered mass and share to nodes)
+        inc_angle = angle(ion_current_dir(:), -1.0d0 * cell(impact_cell)%normal(:))
+        yield = sputter_yield_carbon(ion(iion_idx)%KE, inc_angle) ! Use original ion's KE
+        mass_loss = yield * ion(iion_idx)%qCEXion/e * massCarbon ! Use original ion's macro-charge
+
+        ! Accumulate mass loss for the impacted cell
+        cell(impact_cell)%mass_loss = cell(impact_cell)%mass_loss + mass_loss
+
+        ! Distribute mass loss to the three nodes of the impacted triangle using barycentric coordinates
+        ! Note: u and v are from the *current* intersection (impact_cell)
+        node(til(2,impact_cell))%mass_loss = node(til(2,impact_cell))%mass_loss + u(impact_cell) * mass_loss
+        node(til(3,impact_cell))%mass_loss = node(til(3,impact_cell))%mass_loss + v(impact_cell) * mass_loss
+        node(til(1,impact_cell))%mass_loss = node(til(1,impact_cell))%mass_loss + (1 - u(impact_cell) - v(impact_cell)) * mass_loss
+        sum = node(til(2,impact_cell))%mass_loss + node(til(3,impact_cell))%mass_loss + node(til(1,impact_cell))%mass_loss
+
+        ! Optional: Print details about the sputtering event
+        PRINT*, "Ion Number:", iion_idx, " Sputtered. Reflections:", current_refl_count, &
+                " Cell Mass Loss:", cell(impact_cell)%mass_loss, " Node sum mass Loss:", sum
+        WRITE(112,"(2I8,6E15.6)") iion_idx, current_refl_count, ion_current_origin, ion_current_dir
+        RETURN ! Exit the recursive call (ion's path is resolved)
+
+    ELSE !PSB changed from ELSE IF (cell(impact_cell)%on_bndry > 0) THEN
+        print *, "-------------------------------- REFLECTION ACHIEVED ----------------------------------------"
+        ! Recursive Step: Ion hit symmetry boundary (reflect)
+        ! Increment reflection count for this specific ion
+        ion_refl_counts_arr(iion_idx) = ion_refl_counts_arr(iion_idx) + 1
+
+        ! Calculate reflected ray direction
+        reflectedray = ion_current_dir - 2 * DOT_PRODUCT(ion_current_dir, cell(impact_cell)%normal) * cell(impact_cell)%normal
+
+        ! Update ion's current direction. Origin remains at the intersection point.
+        ! For the next recursive call, the origin should be slightly offset from the surface
+        ! to prevent immediate re-intersection with the same triangle due to floating point precision.
+        ! IE: The idea of stepping away from the wall so that the ray stays just clear of the surface it just reflected from and doesn't keep bouncing
+        ! A small epsilon along the new direction is common practice.
+        ion_current_origin = xcoor(:, impact_cell) + reflectedray * 1.0d-6 ! Move slightly off surface
+        ion_current_dir = reflectedray
+
+        ! Recursive Call: Continue tracing the ion's path from the new origin and direction
+        CALL trace_ion_path(iion_idx, current_refl_count + 1, &
+                            ion_current_origin, ion_current_dir, &
+                            nlostboys, nbottomboys, ion_refl_counts_arr, &
+                            vert1, vert2, vert3, t, u, v, xcoor, intersect, &
+                            cell, node, til, max_reflections)
+        RETURN ! Exit this recursive call (the result comes from the deeper call)
+    END IF
+  END SUBROUTINE trace_ion_path
+
+
+
+  end program Redepo
