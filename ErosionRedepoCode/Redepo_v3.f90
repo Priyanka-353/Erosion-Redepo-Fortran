@@ -16,7 +16,7 @@ PROGRAM Redepo
  !  Control Parameters
  !-----------------------------------------------------------------------------
  real*8, parameter :: moly_mass = 1.593E-22  ! Mass of a molybdenum (or grid material) atom in grams
- integer, parameter :: nionsample = 7  ! Unitless, amount of CEX ions used for analysis
+ integer, parameter :: nionsample = 2.5E2  ! Unitless, amount of CEX ions used for analysis
  ! VERY IMPORTANT ^^^^^^ PSB CHANGED WAS 2.5E5 -----------------------------------------------------
  integer, parameter :: degree_of_precision_element_integration=2  ! degree of precision for triangle quadrature for redepo emission site
  real*8, parameter :: erosionStepSize = 25  ! Time step size in hrs
@@ -31,6 +31,8 @@ PROGRAM Redepo
  character(LEN = 50) :: ionfilename
  integer, parameter :: nerosionSteps = ceiling(maxSimulationTime/erosionStepSize) + 1
  real*8, dimension(maxnpt) :: delta_x_old, delta_y_old, delta_z_old
+ INTEGER, PARAMETER :: DP = KIND(1.0d0) !PSB added
+
 
  integer :: erosionStep
  real*8 :: erosionTime
@@ -78,6 +80,11 @@ PROGRAM Redepo
   CHARACTER (LEN=50) :: plot_subfolder  !PSB
  CHARACTER (LEN=20) :: plot_name_str !PSB
  INTEGER,DIMENSION(nionsample) :: ion_reflection_counts !PSB -> added to track number of reflections per ion
+ REAL*8 :: current_x, current_y, current_z !PSB
+ REAL*8 :: total_mass_lost_this_step ! PSB This variable will hold the sum for the current step
+ CHARACTER (LEN=250) :: python_script_path !PSB 
+ CHARACTER (LEN=250) :: output_folder!PSB 
+ CHARACTER (LEN=250) :: file_identifier_str !PSB 
  print *, "Variables have been declared" !PSB
  !-----------------------------------------------------------------------------
  !  Read in CEX ion data
@@ -100,7 +107,7 @@ PROGRAM Redepo
    case (0)    !  Generate mesh for initial flat accel grid face
     call mesh_flat_surface(domain, npt, vcl, vcl3d, maxntri, nfacept, accel_thickness)
     call triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
-    
+
      !---------------------------------------------------------------------------
      ! Save the vertex coordinate list and mesh triangle index list for plotting
      !---------------------------------------------------------------------------
@@ -212,7 +219,7 @@ CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
  !
  print*, "Starting erosion iterations..!"
 
-EROSION: do erosionStep = 1, 1 ! PSB: IMPORTANT CHANGED 5 TO 1 
+EROSION: do erosionStep = 1, 4 ! PSB: IMPORTANT CHANGED 5 TO 1 
   print *, "----------------------------------------------------------------------" !PSB
   print *, "                          Erosion Step:", erosionStep !PSB
    erosionTime = erosionStep * erosionStepSize
@@ -229,7 +236,6 @@ EROSION: do erosionStep = 1, 1 ! PSB: IMPORTANT CHANGED 5 TO 1
      ionsample(iion) = ion(ionindex(iion))
    end do
 
-   print *, "Number of ions chosen to be sampled is nionsample which is", nionsample
    !-----------------------------------------------------------------------------
    !  Sputtering section
    !-----------------------------------------------------------------------------
@@ -242,14 +248,14 @@ EROSION: do erosionStep = 1, 1 ! PSB: IMPORTANT CHANGED 5 TO 1
    nbottomboys = 0
    ion_reflection_counts = 0 !PSB added 
    open(112, FILE = 'IonInfo')
-   WRITE(112, '(A)') '# Ion/Behav, Current_Refl_Count, Origin_X, Origin_Y, Origin_Z, Dir_X, Dir_Y, Dir_Z' !Header - PSB
+   WRITE(112, '(A)') '# Ion/Behav, Current_Refl_Count, Origin_X, Origin_Y, Origin_Z, Dir_X, Dir_Y, Dir_Z, Triangle Cell of Impact' !Header - PSB
+  
    DOION: do iion = 1, nionsample !PSb: Iterate through each of the randomly selected ions
-    CALL trace_ion_path(iion, 0, ion(iion)%origin, ion(iion)%dir, &
+      CALL trace_ion_path(iion, 0, ion(iion)%origin, ion(iion)%dir, &
                         nlostboys, nbottomboys, ion_reflection_counts, &
                         vert1, vert2, vert3, t, u, v, xcoor, intersect, &
                         cell, node, til, maxReflections_ions)
   end do DOION
-
   close(112)
 
    print*, "No. ions that didn't hit anything: ", nlostboys
@@ -271,41 +277,65 @@ EROSION: do erosionStep = 1, 1 ! PSB: IMPORTANT CHANGED 5 TO 1
    !  Geometry update section
    !-----------------------------------------------------------------------------
 
-  !  do inode = 1, nfacept
-  !    node(inode)%vel = node(inode)%mass_loss/simulation_time/(node(inode)%area * densityCarbon) * node(inode)%normal  ! vel is positive inward
-  !    call ABintegrate(node(inode)%coords, node(inode)%vel, node(inode)%vel_old, erosionStepSize * 3600, node(inode)%firstStep)
-  !    vcl3d(:,inode) = node(inode)%coords
-  !    vcl(:,inode) = node(inode)%coords(1:2)
-  !    node(inode)%vel_old = node(inode)%vel
-  !  end do
-  !  print *, "Erosion Time         :", erosionTime !PSB
-  !  print *, "Node 226 Mass Loss   :", node(226)%mass_loss !PSB
-   
-  !   print *, "Node 226 Coordinates:"
-  !   print '(A, F10.4)', "  x: ", node(226)%coords(1)! PSB
-  !   print '(A, F10.4)', "  y: ", node(226)%coords(2)! PSB
-  !   print '(A, F10.4)', "  z: ", node(226)%coords(3)! PSB
+    do inode = 1, nfacept !PSB Iterate through the number of surface nodes on the mesh subject to sputtering
+      node(inode)%vel = node(inode)%mass_loss/simulation_time/(node(inode)%area * densityCarbon) * node(inode)%normal  ! vel is positive inward 
+      !^ PSB calculate the 3D erosion velocity vector for the current node 
+      call ABintegrate(node(inode)%coords, node(inode)%vel, node(inode)%vel_old, erosionStepSize * 3600, node(inode)%firstStep)
+        !^ PSB Update the node's position by numerically integrating its erosion velocity over the given erosionStepSize
+        !^ PSB Simulates movement of surface due to sputtering
+        vcl3d(:,inode) = node(inode)%coords !PSB update VCL
+        vcl(:,inode) = node(inode)%coords(1:2) !PSB update VCL
+        node(inode)%vel_old = node(inode)%vel !PSB Store the current velocity into the 'old' velocity, which is needed for Adams Bashfort modeling
+    end do
+    print *, "Erosion Time         :", erosionTime !PSB
+
+    print *, "Node 227 Coordinates:"
+    print '(A, F10.4)', "  x: ", node(227)%coords(1)! PSB
+    print '(A, F10.4)', "  y: ", node(227)%coords(2)! PSB
+    print *, "z coord:" , node(227)%coords(3) ! PSB
+
+    print *, "Node 228 Coordinates:"
+    print '(A, F10.4)', "  x: ", node(228)%coords(1)! PSB
+    print '(A, F10.4)', "  y: ", node(228)%coords(2)! PSB
+    print *, "z coord:" , node(228)%coords(3) ! PSB
 
 
-  !  npt = nfacept
-  !  call triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
-  !  call mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept)
-  !  do icell = 1, ntri
+  !  npt = nfacept !PSB set npt to the number of surface nodes
+  !  !call triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell) !PSB Remesh the area, if the original triangulation is distorted
+  !  !call mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept) !PSB Redetermine where the mesh edges are
+  !  do icell = 1, ntri !PSB Iterate through each cell of the triangle
   !    cell(icell)%til(:) = til(:,icell)! Define the triangle incidence list for cell
   !    cell(icell)%vert1(:) = vcl3d(:,cell(icell)%til(1)) ! Define vertices of cell
   !    cell(icell)%vert2(:) = vcl3d(:,cell(icell)%til(2))
   !    cell(icell)%vert3(:) = vcl3d(:,cell(icell)%til(3))
   !    call calc_cell_params(cell(icell), icell)! Calculate other cell parameters
   !  end do
-  !  do inode = 1,nfacept
 
+  !  do inode = 1,nfacept !PSB iterate through each surface node
   !    node(inode)%coords(:) = vcl3d(:,inode)! Define coordinates of node from vertex coordinate list
-
   !    call calc_node_params(node(inode), inode, domain, nfacetri, cell)! Calculate other node parameters
   !  end do
   !  do inode = 1,nfacept
-  !    write(113,'(F10.2,3(",",ES13.6))') erosionTime, vcl3d(1,inode), vcl3d(2,inode), vcl3d(3,inode)
+  !    write(113,'(F10.2,3(",",ES13.6))') erosionTime, vcl3d(1,inode), vcl3d(2,inode), vcl3d(3,inode) !PSB 113 is VCL3d, write in the erosion times, xyz coordinate of the current node
   !  end do
+
+  
+  !----------------------------------------------------------------------------- 
+  ! PSB Save NODE values for each cell to a file 
+  !----------------------------------------------------------------------------- 
+  OPEN(UNIT=115, FILE='NodeData_Cumulative.txt', STATUS='REPLACE', ACTION='WRITE') 
+  WRITE(115, '(A)') '# ErosionTime, NodeID, X_Coord, Y_Coord, Z_Coord, Cumulative_Mass_Loss, Associated_Cell_IDs' 
+  DO inode = 1, nfacept 
+    current_x = node(inode)%coords(1) 
+    current_y = node(inode)%coords(2) 
+    current_z = node(inode)%coords(3)
+    WRITE(115, '(F10.2, I8, 3(ES25.18), ES13.6, A)', ADVANCE='NO') & 
+    erosionTime, inode, current_x, current_y, current_z, node(inode)%mass_loss, ', Cells: ' 
+    WRITE(115, '(A)') 'Not_Available' 
+  END DO 
+  CLOSE(115) 
+  PRINT *, "Detailed node data (coords, mass loss, cells) saved to NodeData_Cumulative.txt"
+  !----------------------------------------------------------------------------- 
 
 
 !---------------------------------------------------------------------------
@@ -321,16 +351,15 @@ IF (j /= 0) THEN
     PRINT *, "Plot will be saved in the current directory instead."
     plot_subfolder = '.'
 END IF
-plot_name_str = "post_erosion" ! Identifier for the plot filename
+plot_name_str = "erosion_CHANGING" ! Identifier for the plot filename
 ! Command to call the Python script, passing the output folder and plot identifier
 command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(plot_name_str)
 CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
 ! ---------------------------------------------------------------------------
 
-
-  !----------------------------------------------------------------------------- 
-  ! PSB Save on_bndry values for each cell to a file 
-  !----------------------------------------------------------------------------- 
+!----------------------------------------------------------------------------- 
+! PSB Save on_bndry values for each cell to a file 
+!----------------------------------------------------------------------------- 
   OPEN(UNIT=90, FILE='cell_bndry_values.txt', STATUS='REPLACE', ACTION='WRITE', IOSTAT=i) 
   IF (i /= 0) THEN 
     PRINT *, "Error: Could not open cell_on_bndry_values.txt for writing (IOSTAT:", i, ")" 
@@ -344,13 +373,20 @@ CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
       PRINT *, "Cell boundary values saved to cell_on_bndry_values.txt" 
   END IF
 
+  ! PSB Code for total mass lost -------------------
+  DO inode = 1, nfacept 
+    total_mass_lost_this_step = total_mass_lost_this_step + node(inode)%mass_loss 
+  END DO 
+  PRINT *, "Grid lost ", total_mass_lost_this_step, "g (<- check unit) from erosion step " , erosionStep
 END DO EROSION
- !-----------------------------------------------------------------------------
- !  Deallocate dynamic arrays
- !-----------------------------------------------------------------------------
- deallocate(ion)
- close(113)
- contains
+
+
+!-----------------------------------------------------------------------------
+!  Deallocate dynamic arrays
+!-----------------------------------------------------------------------------
+deallocate(ion)
+close(113)
+contains
 
 subroutine randperm(x, n, k)
  !******************************************************************************
@@ -443,7 +479,6 @@ RECURSIVE SUBROUTINE trace_ion_path(iion_idx, current_refl_count, &
     ! If they were variables, they would need to be passed as arguments or put in a module.
     REAL*8, PARAMETER :: e = 1.60217662E-19
     REAL*8, PARAMETER :: massCarbon = 1.994307e-23
-    REAL*8, PARAMETER :: densityCarbon = 0.0022
 
     ! Local variables
     INTEGER :: num_hits
@@ -467,19 +502,17 @@ RECURSIVE SUBROUTINE trace_ion_path(iion_idx, current_refl_count, &
                                   borderIn = 'inclusive')
 
     num_hits = COUNT(intersect)
-    print *, "Num hits:" , num_hits
     ! Find the closest intersected triangle.
     ! Assuming triangle_ray_intersection or a subsequent sort ensures impact_tri_arr(1) is the closest.
     ! A more robust check would be to find the minimum 't' among all true 'intersect' entries.
     IF (num_hits > 0) THEN
         impact_tri_arr = FINDLOC(intersect, VALUE = .TRUE.)
         impact_cell = impact_tri_arr(1) ! Take the first one found (assumed closest)
-        print *, "Impact Cell:", impact_cell
     ELSE
         ! No hits in the current step. This is a base case.
         ! Ion did not strike any surface in domain (small fraction of total at edges or with vz near zero)
         WRITE(112,"(A,2I8,6E15.6)") "NO_HIT", iion_idx, current_refl_count, ion_current_origin, ion_current_dir   
-        PRINT*, " ----------------------------- NO HIT , LOST  ----------------------------- "
+        PRINT*, "Lost, No hit "
         nlostboys = nlostboys + 1
         RETURN ! Exit the recursive call
     END IF
@@ -487,15 +520,14 @@ RECURSIVE SUBROUTINE trace_ion_path(iion_idx, current_refl_count, &
     ! Base Case / Recursive Step Logic based on impact type
     IF (cell(impact_cell)%on_bndry == -1) THEN
         ! Base Case 2: Ion left through top of domain (should not happen)
-        WRITE(112,"(A,2I8,6E15.6)") "TOP_EXIT", iion_idx, current_refl_count, ion_current_origin, ion_current_dir  
+        WRITE(112,"(A,2I8,6E15.6)") "TOP_EXIT", iion_idx, current_refl_count, ion_current_origin, ion_current_dir, impact_cell  
         PRINT*, "ion number ", iion_idx, "left through top of domain (should not happen)"
         RETURN ! Exit the recursive call
     ELSE IF (cell(impact_cell)%on_bndry == -2) THEN
         ! Base Case 3: Ion hit bottom of domain (should only happen after punch-through)
-        WRITE(112,"(A,2I8,6E15.6)") "PUNCHTHRU", iion_idx, current_refl_count, ion_current_origin, ion_current_dir  
+        WRITE(112,"(A,2I8,6E15.6)") "PUNCHTHRU", iion_idx, current_refl_count, ion_current_origin, ion_current_dir, impact_cell  
         nbottomboys = nbottomboys + 1
-        PRINT*, "Ion Number:", iion_idx, "Hit bottom. Reflections:", current_refl_count, &
-                " Cell Mass Loss:", cell(impact_cell)%mass_loss, " Node sum mass Loss:", sum
+        PRINT*, "Hit bottom."
         RETURN ! Exit the recursive call
     ELSE IF (cell(impact_cell)%on_bndry == 0) THEN
         ! Base Case 4: Ion hit sputtering surface (calculate sputtered mass and share to nodes)
@@ -514,9 +546,8 @@ RECURSIVE SUBROUTINE trace_ion_path(iion_idx, current_refl_count, &
         sum = node(til(2,impact_cell))%mass_loss + node(til(3,impact_cell))%mass_loss + node(til(1,impact_cell))%mass_loss
 
         ! Optional: Print details about the sputtering event
-        PRINT*, "Ion Number:", iion_idx, " Sputtered. Reflections:", current_refl_count, &
-                " Cell Mass Loss:", cell(impact_cell)%mass_loss, " Node sum mass Loss:", sum
-        WRITE(112,"(2I8,6E15.6)") iion_idx, current_refl_count, ion_current_origin, ion_current_dir
+        PRINT*, "Sputtered"
+        WRITE(112,"(2I8,6E15.6)") iion_idx, current_refl_count, ion_current_origin, ion_current_dir, impact_cell
         RETURN ! Exit the recursive call (ion's path is resolved)
 
     ELSE !PSB changed from ELSE IF (cell(impact_cell)%on_bndry > 0) THEN

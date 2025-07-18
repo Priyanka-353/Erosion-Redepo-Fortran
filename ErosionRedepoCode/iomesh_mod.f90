@@ -414,7 +414,7 @@ module iomesh_mod
           centroid(2) = (vcl(2,tilist(1,i)) + vcl(2,tilist(2,i)) + vcl(2,tilist(3,i)))/3.0d0
           ! PSB changed for refinement in mesh points
           ! Original if (sqrt(centroid(1)**2 + centroid(2)**2) > 0.8182d0 * domain%xmax) then
-          if (sqrt(centroid(1)**2 + centroid(2)**2) > 0.74d0 * domain%xmax) then
+          if (sqrt(centroid(1)**2 + centroid(2)**2) > 0.55d0 * domain%xmax) then
               npt = npt + 1
               vcl3d(1,npt) = centroid(1)
               vcl3d(2,npt) = centroid(2)
@@ -860,7 +860,7 @@ module iomesh_mod
       member = 1
       do j = 1, nfacetri
         do k = 1, 3
-          if (cell(j)%til(k) == i) then ! Triangle incidence list for cell(j) contains node i at k
+          if (cell(j)%til(k) == nodenum) then ! PSB CHANGED i to NODENUM! Triangle incidence list for cell(j) contains node i at k
             node%in_cells(member) = j                        ! Add cell j to in_cells list
             node%cell_angle(member) = cell(j)%vertangle(k)   ! Add angle to cell_angle list
             node%area = node%area + 1.0d0/3.0d0 * cell(j)%area
@@ -1170,12 +1170,14 @@ module iomesh_mod
       integer, intent(inout) :: firstStep
 
       if (firstStep == 1) then ! use Euler integration
-        coords = coords - stepSize * vel
+        coords = coords + stepSize * vel ! PSB: Changed coords - to coords +
         firstStep = 0
       else ! use Adams-Bashforth 2-step integration
-        coords = coords - 3.0d0/2.0d0 * stepSize * vel  + &
+        ! PSB : Original coords = coords - 3.0d0/2.0d0 * stepSize * vel  + & 1.0d0/2.0d0 * stepSize * vel_old
+        coords = coords + 3.0d0/2.0d0 * stepSize * vel  - &
           1.0d0/2.0d0 * stepSize * vel_old
       end if
+      print *, "AB output:" , coords
     end subroutine ABintegrate
   !*****************************************************************************
     function angle (A, B) result (C)

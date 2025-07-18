@@ -37,7 +37,7 @@ def plot_3d_mesh(points_file, triangles_file, output_folder=".", file_identifier
         points = points_data # Rename for consistency with original code
         
         print(f"Points shape: {points.shape}")
-        print(f"Last 5 points:\n{points[-5:]}")
+        #print(f"Last 5 points:\n{points[-5:]}")
 
         # Load triangles from 'Triangles' file
         # No header or comments in this file, directly load integers
@@ -53,7 +53,7 @@ def plot_3d_mesh(points_file, triangles_file, output_folder=".", file_identifier
             sys.exit(1) # Exit if the Triangles format is unexpected
 
         print(f"Tri shape: {triangles.shape}")
-        print(f"Last 5 tri:\n{triangles[-5:]}")
+        #print(f"Last 5 tri:\n{triangles[-5:]}")
 
         # Convert Fortran 1-indexed to Python 0-indexed for array access
         triangles_0_indexed = triangles - 1
@@ -89,7 +89,7 @@ def plot_3d_mesh(points_file, triangles_file, output_folder=".", file_identifier
         # Set limits for 3D plot based on your previous settings
         ax.set_xlim([0.4,1.2])
         ax.set_ylim([0.1,0.7])
-        ax.set_zlim([1.5,3])
+        ax.set_zlim([2.854999999999999999,2.8550000000000001])
   
         output_filename = os.path.join(output_folder, f"plot_mesh_{file_identifier_str}.png")
         plt.savefig(output_filename, dpi=300, bbox_inches='tight')
