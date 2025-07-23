@@ -316,7 +316,6 @@ module sputter_mod
     ! License: BSD license (http://en.wikipedia.org/wiki/BSD_licenses)
     !---------------------------------------------------------------------------
     implicit none
-
     real*8, dimension(3), intent(in) :: origpt
     real*8, dimension(3), intent(in) :: dirvec
     real*8, dimension(:,:), intent(in) :: vert1
@@ -358,6 +357,9 @@ module sputter_mod
     logical, save :: first_intersect_write = .true. ! PSB Flag for writing header
     integer, dimension(size(vert1, dim=2)) :: intersect_int
     integer, intent(in) :: ion_idx_in ! New Ion index to be saved
+
+    ! Debug print
+    print *, "triangle ray intersection called for " , ion_idx_in
 
     if (present(epsIn)) then
       eps = epsIn

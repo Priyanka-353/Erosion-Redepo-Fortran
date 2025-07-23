@@ -78,8 +78,8 @@ module iomesh_mod
   real*8 :: simulation_time
   integer :: npandgions
 
-  integer, parameter :: maxnpt = 500 ! PSB CHANGED 300 is maximum number of vertices in mesh--change if necessary
-  integer, parameter :: maxntri = 900 ! PSB CHANGED 600 is maximum number of triangles in mesh--change if necessary
+  integer, parameter :: maxnpt = 1000 ! PSB CHANGED 300 is maximum number of vertices in mesh--change if necessary
+  integer, parameter :: maxntri = 1600 ! PSB CHANGED 600 is maximum number of triangles in mesh--change if necessary
   integer, parameter :: maxnray = 2030 ! max number of Lebedev rays
   type (node_type), dimension(maxnpt) :: node
   type (cell_type), dimension(maxntri) :: cell
@@ -241,28 +241,28 @@ module iomesh_mod
       !close(20)
 
       !PSB added the following code
-      i = 1
-      print*, "Ion #", i
-      print*, "  Death Location (mm):       ", ion(i)%death_loc(1), ion(i)%death_loc(2), ion(i)%death_loc(3)
-      print*, "  Velocity (mm/us):          ", ion(i)%vel(1), ion(i)%vel(2), ion(i)%vel(3)
-      print*, "  Kinetic Energy (eV):       ", ion(i)%KE
-      print*, "  Macro-particle Charge:     ", ion(i)%qCEXion
-      print*, "  Source Region ID:          ", ion(i)%source
-      print*, "  Radial Disp. (xydisp, mm): ", ion(i)%xydisp
-      print*, "  Direction Vector:          ", ion(i)%dir(1), ion(i)%dir(2), ion(i)%dir(3)
-      print*, "  Origin Location (mm):      ", ion(i)%origin(1), ion(i)%origin(2), ion(i)%origin(3)
-      print*, "------------------------------------------------------------"
-      i = npandgions
-      print*, "Ion #", i
-      print*, "  Death Location (mm):       ", ion(i)%death_loc(1), ion(i)%death_loc(2), ion(i)%death_loc(3)
-      print*, "  Velocity (mm/us):          ", ion(i)%vel(1), ion(i)%vel(2), ion(i)%vel(3)
-      print*, "  Kinetic Energy (eV):       ", ion(i)%KE
-      print*, "  Macro-particle Charge:     ", ion(i)%qCEXion
-      print*, "  Source Region ID:          ", ion(i)%source
-      print*, "  Radial Disp. (xydisp, mm): ", ion(i)%xydisp
-      print*, "  Direction Vector:          ", ion(i)%dir(1), ion(i)%dir(2), ion(i)%dir(3)
-      print*, "  Origin Location (mm):      ", ion(i)%origin(1), ion(i)%origin(2), ion(i)%origin(3)
-      print*, "------------------------------------------------------------"
+      ! i = 1
+      ! print*, "Ion #", i
+      ! print*, "  Death Location (mm):       ", ion(i)%death_loc(1), ion(i)%death_loc(2), ion(i)%death_loc(3)
+      ! print*, "  Velocity (mm/us):          ", ion(i)%vel(1), ion(i)%vel(2), ion(i)%vel(3)
+      ! print*, "  Kinetic Energy (eV):       ", ion(i)%KE
+      ! print*, "  Macro-particle Charge:     ", ion(i)%qCEXion
+      ! print*, "  Source Region ID:          ", ion(i)%source
+      ! print*, "  Radial Disp. (xydisp, mm): ", ion(i)%xydisp
+      ! print*, "  Direction Vector:          ", ion(i)%dir(1), ion(i)%dir(2), ion(i)%dir(3)
+      ! print*, "  Origin Location (mm):      ", ion(i)%origin(1), ion(i)%origin(2), ion(i)%origin(3)
+      ! print*, "------------------------------------------------------------"
+      ! i = npandgions
+      ! print*, "Ion #", i
+      ! print*, "  Death Location (mm):       ", ion(i)%death_loc(1), ion(i)%death_loc(2), ion(i)%death_loc(3)
+      ! print*, "  Velocity (mm/us):          ", ion(i)%vel(1), ion(i)%vel(2), ion(i)%vel(3)
+      ! print*, "  Kinetic Energy (eV):       ", ion(i)%KE
+      ! print*, "  Macro-particle Charge:     ", ion(i)%qCEXion
+      ! print*, "  Source Region ID:          ", ion(i)%source
+      ! print*, "  Radial Disp. (xydisp, mm): ", ion(i)%xydisp
+      ! print*, "  Direction Vector:          ", ion(i)%dir(1), ion(i)%dir(2), ion(i)%dir(3)
+      ! print*, "  Origin Location (mm):      ", ion(i)%origin(1), ion(i)%origin(2), ion(i)%origin(3)
+      ! print*, "------------------------------------------------------------"
 
       !PSB print*, ion(i)%death_loc(1), ion(i)%death_loc(2), ion(i)%death_loc(3), ion(i)%vel(1), ion(i)%vel(2), ion(i)%vel(3), &
       !PSB ion(i)%KE, ion(i)%qCEXion, ion(i)%source, ion(i)%xydisp, ion(i)%dir(1), ion(i)%dir(2), ion(i)%dir(3), &
@@ -310,7 +310,7 @@ module iomesh_mod
 
       integer :: i, j
       integer :: x1numpnts
-      integer :: x2numpnts = 11 ! PSB changed from 8 to 11
+      integer :: x2numpnts = 15 ! PSB changed from 8 to 11
       integer :: ierr
       integer :: numcircpts
       real*8, dimension(:), ALLOCATABLE :: x, y
@@ -366,7 +366,7 @@ module iomesh_mod
       ! Define mesh points on edge of hole
       !---------------------------------------------------------------------------
       ! PSB adjusted numcircpts calculation for more points around the hole
-      numcircpts = NINT(domain%hole_diam * pi / 10.0d0 / (0.5d0 * dx2)) 
+      numcircpts = NINT(domain%hole_diam * pi / 6.0d0 / (0.5d0 * dx2)) 
       ! ORIGINAL: domain%hole_diam * pi/12.0d0/(0.5d0 * dx2) 
 
       dtheta = 30.0d0 * pi/180.0d0/numcircpts
@@ -392,6 +392,7 @@ module iomesh_mod
         vcl3d(2,npt) = 0.0d0
         vcl3d(3,npt) = domain%zmax
       end do
+
     REMESH_LOOP: DO remeshIters = 1, REMESH_ITERS !PSB - Resmesh iterations
         !---------------------------------------------------------------------------
         ! Create initial vertex coordinate list and index
@@ -430,8 +431,8 @@ module iomesh_mod
     end do REMESH_LOOP! End of remesh iters 
     nfacept = npt     ! Define number of points in accel face mesh
     end subroutine mesh_flat_surface
-
-  !*******************************************************************************
+  
+!*******************************************************************************
     subroutine triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
     !-----------------------------------------------------------------------------
     !  Uses the geometry data in domain structure to generate a mesh on downstream
@@ -474,6 +475,15 @@ module iomesh_mod
       integer, dimension(3, size(til, dim = 2)) :: tnbr, new_til
       integer, dimension(size(vcl, dim = 2)) :: stack
       logical :: isOnWall_major, isOnWall_minor, isOnWall_hypot, isInHole
+      ! PSB 
+     ! Variables for triangle quality checks
+     real*8, dimension(3) :: p1, p2, p3
+     real*8, dimension(3) :: edge1_3d, edge2_3d, normal_vec_3d
+     real*8 :: area_check_norm, triangle_area
+     real*8 :: a1, a2, a3 ! Angles
+     REAL*8, PARAMETER :: MIN_AREA_TOL = 1.0E-12 ! Tolerance for degenerate area
+     REAL*8, PARAMETER :: MIN_ANGLE_RAD = 1.0E-3 ! Tolerance for skinny angles (approx 0.057 degrees)
+     !print*, "triangulation routine: npt, vcl3d(226)", npt,vcl3d(:,226)
 
       ! print *, "Number of Points (npt):", npt !PSB
       ! print *, "Coordinates of Point 226 (vcl3d(:,226)):"  !PSB
@@ -495,6 +505,47 @@ module iomesh_mod
       !---------------------------------------------------------------------------
       new_ntri = 0
       do i = 1,ntri
+
+        !!!!!! PSB ADDED TRIANGLE FILTERING !!!!!
+        !Ensure triangle indices are within bounds of vcl3d
+       IF (til(1,i) < 0 .OR. til(1,i) > npt .OR. &
+           til(2,i) < 0 .OR. til(2,i) > npt .OR. &
+           til(3,i) < 0 .OR. til(3,i) > npt) THEN
+           PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ERROR: Invalid vertex index in triangle ", i, " from dtris2 output. Skipping."
+           PRINT *, "Indices: ", til(1,i), til(2,i), til(3,i), " (npt = ", npt, ")"
+           CYCLE ! Skip to the next triangle
+       END IF
+       ! Get 3D coordinates for area and angle calculations
+       p1 = vcl3d(:,til(1,i))
+       p2 = vcl3d(:,til(2,i))
+       p3 = vcl3d(:,til(3,i))
+       ! Calculate 3D area to check for degenerate triangles
+       edge1_3d = p2 - p1
+       edge2_3d = p3 - p1
+       normal_vec_3d = cross(edge1_3d, edge2_3d)
+       area_check_norm = norm2(normal_vec_3d)
+       triangle_area = area_check_norm / 2.0d0
+
+       IF (triangle_area < MIN_AREA_TOL) THEN
+           PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Warning: Degenerate triangle (ID ", i, ") found in triangulate_surface with area: ", triangle_area
+           PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Vertices (3D): ", p1(1), p1(2), p1(3), " | ", p2(1), p2(2), p2(3), " | ", p3(1), p3(2), p3(3)
+           CYCLE ! Skip this triangle (too small area)
+       END IF
+
+       ! Calculate 3D angles to check for skinny triangles
+       a1 = angle(edge1_3d, edge2_3d)                 ! Angle at vert1
+       a2 = angle(p1-p2, p3-p2)                       ! Angle at vert2 (vector from p2 to p1, vector from p2 to p3)
+       a3 = angle(p1-p3, p2-p3)                       ! Angle at vert3 (vector from p3 to p1, vector from p3 to p2)
+
+       IF (a1 < MIN_ANGLE_RAD .OR. a2 < MIN_ANGLE_RAD .OR. a3 < MIN_ANGLE_RAD .OR. &
+           a1 > (PI - MIN_ANGLE_RAD) .OR. a2 > (PI - MIN_ANGLE_RAD) .OR. a3 > (PI - MIN_ANGLE_RAD)) THEN
+           PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Warning: Skinny triangle (ID ", i, ") found in triangulate_surface with angles: ", &
+                     a1 * 180.0d0 / PI, a2 * 180.0d0 / PI, a3 * 180.0d0 / PI, " degrees."
+           PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Vertices (3D): ", p1(1), p1(2), p1(3), " | ", p2(1), p2(2), p2(3), " | ", p3(1), p3(2), p3(3)
+           CYCLE ! Skip this triangle (too skinny)
+       END IF
+       !---------- endof psb
+
         cell(i)%centroid(1) = (vcl(1,til(1,i)) + vcl(1,til(2,i)) + vcl(1,til(3,i)))/3.0d0
         cell(i)%centroid(2) = (vcl(2,til(1,i)) + vcl(2,til(2,i)) + vcl(2,til(3,i)))/3.0d0
 
@@ -532,6 +583,148 @@ module iomesh_mod
       ! print *, "  Vertex 3 index:", til(3,100) !PSB
     end subroutine triangulate_surface
 
+ !*******************************************************************************
+   !subroutine triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
+   !-----------------------------------------------------------------------------
+   !  Uses the geometry data in domain structure to generate a mesh on downstream
+   !  surface of the accel grid.  Assumes that the surface is flat (beginning of
+   !  life geometry).
+   !
+   !  History:
+   !
+   !    Jay Polk
+   !    May 9, 2021
+   !
+  !  !  Parameters:
+  !  !
+  !  !    Input, type (geom_type) domain, a data structure containing geometry info for the domain
+  !  !    Input, real (kind = 8) npt, the number of points in the vcl
+  !  !    Input, real (kind = 8) vcl, a (2,maxpt) array with the vertex coordinate list for the grid face mesh.
+  !  !       This is the point array that is passed to dtris2 for delaunay triangulation.
+  !  !    Input, real (kind = 8) vcl3d, a (3,maxpt) array with the vertex coordinate list for the grid face mesh
+  !  !       (including the z-coordinate)
+  !  !    Output, real (kind = 8) ntri, the number of triangular cells generated by dtris2
+  !  !    Output, integer til, the triangle incidence list generated by dtris2; elements
+  !  !       are indices of vcl; vertices of triangles are in counterclockwise order.
+  !  !    Output, real (kind = 8) nfacetri, the number of triangular cells on the accel grid face
+  !  !    Input/Output, type (cell_type) cell, data structure containing cell info; this subroutine only populates
+  !  !       the on_bndry component = 0 (all cells generated here are on accel grid face)
+  !  !-----------------------------------------------------------------------------
+  !    type (geom_type), intent(in) :: domain
+  !    integer, intent(in) :: npt
+  !    real*8, dimension(:,:), intent(in) :: vcl
+  !    real*8, dimension(:,:), intent(in) :: vcl3d
+  !    integer, intent(inout) :: ntri
+  !    integer, dimension(:,:), intent(inout) :: til
+  !    integer, intent(out) :: nfacetri
+  !    type (cell_type), dimension(:), intent(inout) :: cell
+  !    integer :: i
+  !    integer :: new_ntri
+  !    integer :: ierr
+  !    integer :: ind(size(vcl, dim = 2))
+  !    integer, dimension(3, size(til, dim = 2)) :: tnbr, new_til
+  !    integer, dimension(size(vcl, dim = 2)) :: stack
+  !    logical :: isOnWall_major, isOnWall_minor, isOnWall_hypot, isInHole
+
+
+  !    ! PSB
+  !    ! Variables for triangle quality checks
+  !    real*8, dimension(3) :: p1, p2, p3
+  !    real*8, dimension(3) :: edge1_3d, edge2_3d, normal_vec_3d
+  !    real*8 :: area_check_norm, triangle_area
+  !    real*8 :: a1, a2, a3 ! Angles
+  !    REAL*8, PARAMETER :: MIN_AREA_TOL = 1.0E-12 ! Tolerance for degenerate area
+  !    REAL*8, PARAMETER :: MIN_ANGLE_RAD = 1.0E-3 ! Tolerance for skinny angles (approx 0.057 degrees)
+  !    print*, "triangulation routine: npt, vcl3d(226)", npt,vcl3d(:,226)
+
+  !    !---------------------------------------------------------------------------
+  !    !Generate the final Delaunay triangulation
+  !    !---------------------------------------------------------------------------
+  !    do i = 1, npt
+  !      ind(i) = i
+  !    end do
+  !    call dtris2 (npt, npt, vcl, ind, ntri, til, tnbr, stack, ierr)
+  !    !---------------------------------------------------------------------------
+  !    ! Clean up the mesh (remove bad triangles in hole or coincident with boundaries)
+  !    !---------------------------------------------------------------------------
+  !    new_ntri = 0
+  !    do i = 1,ntri
+  !      ! Ensure triangle indices are within bounds of vcl3d
+  !      IF (til(1,i) < 0 .OR. til(1,i) > npt .OR. &
+  !          til(2,i) < 0 .OR. til(2,i) > npt .OR. &
+  !          til(3,i) < 0 .OR. til(3,i) > npt) THEN
+  !          PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ERROR: Invalid vertex index in triangle ", i, " from dtris2 output. Skipping."
+  !          PRINT *, "Indices: ", til(1,i), til(2,i), til(3,i), " (npt = ", npt, ")"
+  !          CYCLE ! Skip to the next triangle
+  !      END IF
+  !      ! Get 3D coordinates for area and angle calculations
+  !      p1 = vcl3d(:,til(1,i))
+  !      p2 = vcl3d(:,til(2,i))
+  !      p3 = vcl3d(:,til(3,i))
+  !      ! Calculate 3D area to check for degenerate triangles
+  !      edge1_3d = p2 - p1
+  !      edge2_3d = p3 - p1
+  !      normal_vec_3d = cross(edge1_3d, edge2_3d)
+  !      area_check_norm = norm2(normal_vec_3d)
+  !      triangle_area = area_check_norm / 2.0d0
+
+  !      IF (triangle_area < MIN_AREA_TOL) THEN
+  !          PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Warning: Degenerate triangle (ID ", i, ") found in triangulate_surface with area: ", triangle_area
+  !          PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Vertices (3D): ", p1(1), p1(2), p1(3), " | ", p2(1), p2(2), p2(3), " | ", p3(1), p3(2), p3(3)
+  !          CYCLE ! Skip this triangle (too small area)
+  !      END IF
+
+  !      ! Calculate 3D angles to check for skinny triangles
+  !      a1 = angle(edge1_3d, edge2_3d)                 ! Angle at vert1
+  !      a2 = angle(p1-p2, p3-p2)                       ! Angle at vert2 (vector from p2 to p1, vector from p2 to p3)
+  !      a3 = angle(p1-p3, p2-p3)                       ! Angle at vert3 (vector from p3 to p1, vector from p3 to p2)
+
+  !      IF (a1 < MIN_ANGLE_RAD .OR. a2 < MIN_ANGLE_RAD .OR. a3 < MIN_ANGLE_RAD .OR. &
+  !          a1 > (PI - MIN_ANGLE_RAD) .OR. a2 > (PI - MIN_ANGLE_RAD) .OR. a3 > (PI - MIN_ANGLE_RAD)) THEN
+  !          PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Warning: Skinny triangle (ID ", i, ") found in triangulate_surface with angles: ", &
+  !                    a1 * 180.0d0 / PI, a2 * 180.0d0 / PI, a3 * 180.0d0 / PI, " degrees."
+  !          PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Vertices (3D): ", p1(1), p1(2), p1(3), " | ", p2(1), p2(2), p2(3), " | ", p3(1), p3(2), p3(3)
+  !          CYCLE ! Skip this triangle (too skinny)
+  !      END IF
+
+  !      cell(i)%centroid(1) = (vcl(1,til(1,i)) + vcl(1,til(2,i)) + vcl(1,til(3,i)))/3.0d0
+  !      cell(i)%centroid(2) = (vcl(2,til(1,i)) + vcl(2,til(2,i)) + vcl(2,til(3,i)))/3.0d0
+
+  !      isOnWall_major = (abs(vcl(1,til(1,i))) <= 1d-4) .and. (abs(vcl(1,til(2,i))) <= 1d-4) &
+  !      .and. (abs(vcl(1,til(3,i))) <= 1d-4)
+  !      isOnWall_minor = (abs(vcl(1,til(1,i)) - domain%xmax) <= 1e-4) .and. (abs(vcl(1,til(2,i)) - domain%xmax)  &
+  !      < 1d-4) .and. (abs(vcl(1,til(3,i)) - domain%xmax) <= 1d-4)
+  !      isOnWall_hypot = (abs(vcl(1,til(1,i)) * tan(30.0d0) - vcl(2,til(1,i))) <= 1d-4) &
+  !      .and. (abs(vcl(1,til(2,i)) * tan(30.0d0)-vcl(2,til(2,i))) <= 1d-4) &
+  !      .and. (abs(vcl(1,til(3,i)) * tan(30.0d0)-vcl(2,til(3,i))) <= 1d-4)
+  !      isInHole = sqrt(cell(i)%centroid(1)**2 + cell(i)%centroid(2)**2) <= (0.5d0 * domain%hole_diam)
+
+  !      if (isOnWall_major .or. isOnWall_minor .or. isOnWall_hypot .or. isInHole) then
+  !        ! Don't include in new version of til(:, :)
+  !      else
+  !        new_ntri = new_ntri + 1
+  !        new_til(1,new_ntri) = til(1,i)
+  !        new_til(2,new_ntri) = til(2,i)
+  !        new_til(3,new_ntri) = til(3,i)
+  !        cell(new_ntri)%on_bndry = 0         !  cells are located on grid face, not boundaries
+  !      end if
+  !    end do
+
+  !    do i = 1, new_ntri
+  !      til(:,i) = new_til(:,i)
+  !    end do
+  !    ntri = new_ntri
+  !    nfacetri = ntri       ! Define number of triangles in accel face mesh
+  !    print*, "triangulation routine: ntri, til(100)", ntri,til(:,100)
+
+  !    print *, " - - - - TRIANGULATE SURFACE - - - - "
+  !          print *, "Number of points (npt): ", npt
+  !          print *, "Maximum allowed points (maxnpt): ", maxnpt
+  !          print *, "Number of triangles (ntri): ", ntri
+  !          print *, "Number of face points (nfacept): ", nfacept
+  !          print *, "Maximum allowed triangles (maxntri): ", maxntri
+  !  end subroutine triangulate_surface
+
   !*******************************************************************************
     subroutine mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept)
     !-----------------------------------------------------------------------------
@@ -567,7 +760,7 @@ module iomesh_mod
       integer, dimension(:,:), intent(inout) :: til
       type (cell_type), dimension(:), intent(inout) :: cell
       integer, intent(inout) :: nfacept
-      integer :: i, k
+      integer :: i
       integer, dimension(size(vcl, dim = 2)) :: ind
       !---------------------------------------------------------------------------
       ! Add vertices and triangles for side walls and top
@@ -708,6 +901,7 @@ module iomesh_mod
         cell(ntri)%on_bndry = -2
       end if
     end subroutine mesh_boundaries
+
   !*******************************************************************************
     subroutine calc_cell_params(acell, cellnum)
     !-----------------------------------------------------------------------------
@@ -736,7 +930,6 @@ module iomesh_mod
       !---------------------------------------------------------------------------
       ! Calculate cell geometric parameters (populate cell data structure)
       !---------------------------------------------------------------------------
-
       ! Find vectors for two edges sharing vert1 and for third edge
       acell%edge1(:) = acell%vert2(:) - acell%vert1(:)
       acell%edge2(:) = acell%vert3(:) - acell%vert1(:)
@@ -1169,15 +1362,21 @@ module iomesh_mod
       real*8, intent(in) :: stepSize
       integer, intent(inout) :: firstStep
 
+      ! Print initial coordinates before updating
+      ! print*, "Initial Coords: ", coords
+
       if (firstStep == 1) then ! use Euler integration
         coords = coords + stepSize * vel ! PSB: Changed coords - to coords +
         firstStep = 0
       else ! use Adams-Bashforth 2-step integration
         ! PSB : Original coords = coords - 3.0d0/2.0d0 * stepSize * vel  + & 1.0d0/2.0d0 * stepSize * vel_old
-        coords = coords + 3.0d0/2.0d0 * stepSize * vel  - &
-          1.0d0/2.0d0 * stepSize * vel_old
+        coords = coords - ((3.0d0/2.0d0) * stepSize * vel + (1.0d0/2.0d0) * stepSize * vel_old )
+
+          !coords = coords + 3.0d0/2.0d0 * stepSize * vel  - &
+          !1.0d0/2.0d0 * stepSize * vel_old
       end if
-      print *, "AB output:" , coords
+      ! Print final coordinates after updating
+      ! print*, "Final Coords  : ", coords
     end subroutine ABintegrate
   !*****************************************************************************
     function angle (A, B) result (C)

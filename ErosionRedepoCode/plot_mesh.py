@@ -36,7 +36,7 @@ def plot_3d_mesh(points_file, triangles_file, output_folder=".", file_identifier
         
         points = points_data # Rename for consistency with original code
         
-        print(f"Points shape: {points.shape}")
+        #print(f"Points shape: {points.shape}")
         #print(f"Last 5 points:\n{points[-5:]}")
 
         # Load triangles from 'Triangles' file
@@ -52,7 +52,7 @@ def plot_3d_mesh(points_file, triangles_file, output_folder=".", file_identifier
             print(f"Error: Triangles file '{triangles_file}' does not have 3 valid vertex index columns. Found {triangles.shape[1]}.")
             sys.exit(1) # Exit if the Triangles format is unexpected
 
-        print(f"Tri shape: {triangles.shape}")
+        #print(f"Tri shape: {triangles.shape}")
         #print(f"Last 5 tri:\n{triangles[-5:]}")
 
         # Convert Fortran 1-indexed to Python 0-indexed for array access
@@ -89,9 +89,21 @@ def plot_3d_mesh(points_file, triangles_file, output_folder=".", file_identifier
         # Set limits for 3D plot based on your previous settings
         ax.set_xlim([0.4,1.2])
         ax.set_ylim([0.1,0.7])
-        ax.set_zlim([2.854999999999999999,2.8550000000000001])
+        #ax.set_zlim([2.85,2.856])
+
+        # Dynamically set Z-axis limits based on the data 
+        z_min = np.min(points[:, 2]) 
+        z_max = np.max(points[:, 2]) 
+        # Add a small buffer to the min/max for better visualization 
+        z_range = z_max - z_min 
+        z_buffer = z_range * 4 # 400% buffer 
+        if z_buffer == 0: 
+            # Handle cases where all Z values are identical (e.g., initial flat mesh) 
+            z_buffer = 0.001 # A small default buffer if range is zero 
+        ax.set_zlim([z_min - z_buffer, z_max + z_buffer])
+
   
-        output_filename = os.path.join(output_folder, f"plot_mesh_{file_identifier_str}.png")
+        output_filename = os.path.join(output_folder, f"plot_{file_identifier_str}.png")
         plt.savefig(output_filename, dpi=300, bbox_inches='tight')
         print(f"Plot saved as {output_filename}")
         plt.show()
@@ -129,5 +141,5 @@ if __name__ == "__main__":
     # Run the plotting function with the specified files
     plot_3d_mesh(points_file_to_use, triangles_file_to_use, output_folder, file_identifier_str)
 
-    print("\n Plotting script finished")
-    print(f"Look for plots in '{output_folder}'.")
+    #print("\n Plotting script finished")
+    print(f"Plot complete, look for plots in '{output_folder}'.")
