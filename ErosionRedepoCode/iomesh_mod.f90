@@ -78,7 +78,7 @@ module iomesh_mod
   real*8 :: simulation_time
   integer :: npandgions
 
-  integer, parameter :: maxnpt = 1000 ! PSB CHANGED 300 is maximum number of vertices in mesh--change if necessary
+  integer, parameter :: maxnpt = 700 ! PSB CHANGED 300 is maximum number of vertices in mesh--change if necessary
   integer, parameter :: maxntri = 1600 ! PSB CHANGED 600 is maximum number of triangles in mesh--change if necessary
   integer, parameter :: maxnray = 2030 ! max number of Lebedev rays
   type (node_type), dimension(maxnpt) :: node
@@ -516,7 +516,7 @@ module iomesh_mod
       end do
       ntri = new_ntri
       nfacetri = ntri       ! Define number of triangles in accel face mesh
-      print*, "triangulation routine: ntri, til(100)", ntri,til(:,100)
+      !print*, "triangulation routine: ntri, til(100)", ntri,til(:,100)
     end subroutine triangulate_surface 
 
  !*******************************************************************************
@@ -1304,7 +1304,7 @@ module iomesh_mod
       ! Print initial coordinates before updating
       !print*, "Initial Coords: ", coords
       ! --- DEBUGGING PRINTS AND CHECKS --- 
-      PRINT *, "Initial Coords (before update):", coords 
+      !PRINT *, "Initial Coords (before update):", coords 
       ! PRINT *, "Input vel:", vel 
       ! PRINT *, "Input vel_old:", vel_old 
       ! PRINT *, "stepSize:", stepSize 
@@ -1322,7 +1322,7 @@ module iomesh_mod
           !1.0d0/2.0d0 * stepSize * vel_old
       end if
       ! Print final coordinates after updating
-      print*, "Final Coords  : ", coords
+      !print*, "Final Coords  : ", coords
       ! --- DEBUGGING PRINTS AND CHECKS --- 
       ! PRINT *, "FINAL Coords (before update):", coords 
       ! PRINT *, "FINAL vel:", vel 
