@@ -432,7 +432,7 @@ module iomesh_mod
     nfacept = npt     ! Define number of points in accel face mesh
     end subroutine mesh_flat_surface
   
-!*******************************************************************************
+   !*******************************************************************************
     subroutine triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
     !-----------------------------------------------------------------------------
     !  Uses the geometry data in domain structure to generate a mesh on downstream
@@ -468,30 +468,14 @@ module iomesh_mod
       integer, intent(out) :: nfacetri
       type (cell_type), dimension(:), intent(inout) :: cell
 
-      integer :: i, k
+      integer :: i
       integer :: new_ntri
       integer :: ierr
       integer :: ind(size(vcl, dim = 2))
       integer, dimension(3, size(til, dim = 2)) :: tnbr, new_til
       integer, dimension(size(vcl, dim = 2)) :: stack
       logical :: isOnWall_major, isOnWall_minor, isOnWall_hypot, isInHole
-      ! PSB 
-     ! Variables for triangle quality checks
-     real*8, dimension(3) :: p1, p2, p3
-     real*8, dimension(3) :: edge1_3d, edge2_3d, normal_vec_3d
-     real*8 :: area_check_norm, triangle_area
-     real*8 :: a1, a2, a3 ! Angles
-     REAL*8, PARAMETER :: MIN_AREA_TOL = 1.0E-12 ! Tolerance for degenerate area
-     REAL*8, PARAMETER :: MIN_ANGLE_RAD = 1.0E-3 ! Tolerance for skinny angles (approx 0.057 degrees)
-     !print*, "triangulation routine: npt, vcl3d(226)", npt,vcl3d(:,226)
-
-      ! print *, "Number of Points (npt):", npt !PSB
-      ! print *, "Coordinates of Point 226 (vcl3d(:,226)):"  !PSB
-      ! print *, "  x:", vcl3d(1,226) !PSB
-      ! print *, "  y:", vcl3d(2,226) !PSB
-      ! print *, "  z:", vcl3d(3,226) !PSB
-
-      !print*, "triangulation routine: npt, vcl3d(226)", npt,vcl3d(:,226) PSB
+      print*, "triangulation routine: npt, vcl3d(226)", npt,vcl3d(:,226)
       !---------------------------------------------------------------------------
       ! Generate the final Delaunay triangulation
       !---------------------------------------------------------------------------
@@ -499,53 +483,11 @@ module iomesh_mod
         ind(i) = i
       end do
       call dtris2 (npt, npt, vcl, ind, ntri, til, tnbr, stack, ierr)
-      print *, "triangulate_surface finished dtris2"
       !---------------------------------------------------------------------------
       ! Clean up the mesh (remove bad triangles in hole or coincident with boundaries)
       !---------------------------------------------------------------------------
       new_ntri = 0
       do i = 1,ntri
-
-        !!!!!! PSB ADDED TRIANGLE FILTERING !!!!!
-        !Ensure triangle indices are within bounds of vcl3d
-       IF (til(1,i) < 0 .OR. til(1,i) > npt .OR. &
-           til(2,i) < 0 .OR. til(2,i) > npt .OR. &
-           til(3,i) < 0 .OR. til(3,i) > npt) THEN
-           PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ERROR: Invalid vertex index in triangle ", i, " from dtris2 output. Skipping."
-           PRINT *, "Indices: ", til(1,i), til(2,i), til(3,i), " (npt = ", npt, ")"
-           CYCLE ! Skip to the next triangle
-       END IF
-       ! Get 3D coordinates for area and angle calculations
-       p1 = vcl3d(:,til(1,i))
-       p2 = vcl3d(:,til(2,i))
-       p3 = vcl3d(:,til(3,i))
-       ! Calculate 3D area to check for degenerate triangles
-       edge1_3d = p2 - p1
-       edge2_3d = p3 - p1
-       normal_vec_3d = cross(edge1_3d, edge2_3d)
-       area_check_norm = norm2(normal_vec_3d)
-       triangle_area = area_check_norm / 2.0d0
-
-       IF (triangle_area < MIN_AREA_TOL) THEN
-           PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Warning: Degenerate triangle (ID ", i, ") found in triangulate_surface with area: ", triangle_area
-           PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Vertices (3D): ", p1(1), p1(2), p1(3), " | ", p2(1), p2(2), p2(3), " | ", p3(1), p3(2), p3(3)
-           CYCLE ! Skip this triangle (too small area)
-       END IF
-
-       ! Calculate 3D angles to check for skinny triangles
-       a1 = angle(edge1_3d, edge2_3d)                 ! Angle at vert1
-       a2 = angle(p1-p2, p3-p2)                       ! Angle at vert2 (vector from p2 to p1, vector from p2 to p3)
-       a3 = angle(p1-p3, p2-p3)                       ! Angle at vert3 (vector from p3 to p1, vector from p3 to p2)
-
-       IF (a1 < MIN_ANGLE_RAD .OR. a2 < MIN_ANGLE_RAD .OR. a3 < MIN_ANGLE_RAD .OR. &
-           a1 > (PI - MIN_ANGLE_RAD) .OR. a2 > (PI - MIN_ANGLE_RAD) .OR. a3 > (PI - MIN_ANGLE_RAD)) THEN
-           PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Warning: Skinny triangle (ID ", i, ") found in triangulate_surface with angles: ", &
-                     a1 * 180.0d0 / PI, a2 * 180.0d0 / PI, a3 * 180.0d0 / PI, " degrees."
-           PRINT *, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Vertices (3D): ", p1(1), p1(2), p1(3), " | ", p2(1), p2(2), p2(3), " | ", p3(1), p3(2), p3(3)
-           CYCLE ! Skip this triangle (too skinny)
-       END IF
-       !---------- endof psb
-
         cell(i)%centroid(1) = (vcl(1,til(1,i)) + vcl(1,til(2,i)) + vcl(1,til(3,i)))/3.0d0
         cell(i)%centroid(2) = (vcl(2,til(1,i)) + vcl(2,til(2,i)) + vcl(2,til(3,i)))/3.0d0
 
@@ -565,23 +507,17 @@ module iomesh_mod
           new_til(1,new_ntri) = til(1,i)
           new_til(2,new_ntri) = til(2,i)
           new_til(3,new_ntri) = til(3,i)
-          cell(new_ntri)%on_bndry = 0       
+          cell(new_ntri)%on_bndry = 0         !  cells are located on grid face, not boundaries
         end if
       end do
-      print *, "triangulate_surface finished wall identification"
 
       do i = 1, new_ntri
         til(:,i) = new_til(:,i)
       end do
       ntri = new_ntri
       nfacetri = ntri       ! Define number of triangles in accel face mesh
-      ! print*, "triangulation routine: ntri, til(100)", ntri,til(:,100) !PSB
-      ! print *, "Number of Triangles (ntri):", ntri !PSB
-      ! print *, "Vertices of Triangle 100 (til(:,100)):" !PSB
-      ! print *, "  Vertex 1 index:", til(1,100) !PSB
-      ! print *, "  Vertex 2 index:", til(2,100) !PSB
-      ! print *, "  Vertex 3 index:", til(3,100) !PSB
-    end subroutine triangulate_surface
+      print*, "triangulation routine: ntri, til(100)", ntri,til(:,100)
+    end subroutine triangulate_surface 
 
  !*******************************************************************************
    !subroutine triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
@@ -762,6 +698,9 @@ module iomesh_mod
       integer, intent(inout) :: nfacept
       integer :: i
       integer, dimension(size(vcl, dim = 2)) :: ind
+
+      PRINT *, "Domain type in mesh_boundaries: ", domain%type
+
       !---------------------------------------------------------------------------
       ! Add vertices and triangles for side walls and top
       !---------------------------------------------------------------------------
@@ -791,7 +730,7 @@ module iomesh_mod
       vcl3d(1,npt) = domain%xmax
       vcl3d(2,npt) = domain%ymax
       vcl3d(3,npt) = domain%zmax
-      ! Define vertices on corner of back major wall and left minor wall (rect domains)
+      !Define vertices on corner of back major wall and left minor wall (rect domains)
       if (domain%type == 'rect') then
         npt = npt + 1                 ! Point 7
         vcl3d(1,npt) = domain%xmin
@@ -830,7 +769,7 @@ module iomesh_mod
       til(2,ntri) = nfacept + 3
       til(3,ntri) = nfacept + 6
       cell(ntri)%on_bndry = 2
-      if (domain%type == 'tri') then
+      if (domain%type == 0) then !'tri' PSB
         ! Define triangles on hypotenuse wall (tri domains)
         ntri = ntri + 1                 ! Triangle 5 on Jay's GoodNotes diagram
         til(1,ntri) = nfacept + 4
@@ -855,7 +794,7 @@ module iomesh_mod
         til(3,ntri) = nfacept + 5
         cell(ntri)%on_bndry = -2
       else      ! rect domain
-        ! Define triangles on back major wall (rect domains)
+       ! Define triangles on back major wall (rect domains)
         ntri = ntri + 1                 ! Triangle 5 on Jay's GoodNotes diagram
         til(1,ntri) = nfacept + 7
         til(2,ntri) = nfacept + 8
@@ -1363,7 +1302,14 @@ module iomesh_mod
       integer, intent(inout) :: firstStep
 
       ! Print initial coordinates before updating
-      ! print*, "Initial Coords: ", coords
+      !print*, "Initial Coords: ", coords
+      ! --- DEBUGGING PRINTS AND CHECKS --- 
+      PRINT *, "Initial Coords (before update):", coords 
+      ! PRINT *, "Input vel:", vel 
+      ! PRINT *, "Input vel_old:", vel_old 
+      ! PRINT *, "stepSize:", stepSize 
+      ! PRINT *, "firstStep:", firstStep 
+      ! PRINT *, "--- DEBUG ABintegrate ------------- ---" 
 
       if (firstStep == 1) then ! use Euler integration
         coords = coords + stepSize * vel ! PSB: Changed coords - to coords +
@@ -1376,7 +1322,13 @@ module iomesh_mod
           !1.0d0/2.0d0 * stepSize * vel_old
       end if
       ! Print final coordinates after updating
-      ! print*, "Final Coords  : ", coords
+      print*, "Final Coords  : ", coords
+      ! --- DEBUGGING PRINTS AND CHECKS --- 
+      ! PRINT *, "FINAL Coords (before update):", coords 
+      ! PRINT *, "FINAL vel:", vel 
+      ! PRINT *, "FINAL vel_old:", vel_old 
+      ! PRINT *, "stepSize:", stepSize 
+      ! PRINT *, "firstStep:", firstStep 
     end subroutine ABintegrate
   !*****************************************************************************
     function angle (A, B) result (C)

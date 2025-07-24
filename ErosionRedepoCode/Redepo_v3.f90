@@ -10,6 +10,8 @@ PROGRAM Redepo
  use iomesh_mod
  use sputter_mod
  use ifport
+ USE, INTRINSIC :: IEEE_ARITHMETIC ! For IS_NAN, IS_INF, and Z_NAN
+ USE, INTRINSIC :: ieee_features
  implicit none
 
  !-----------------------------------------------------------------------------
@@ -80,7 +82,7 @@ PROGRAM Redepo
   CHARACTER (LEN=50) :: plot_subfolder  !PSB
  CHARACTER (LEN=20) :: plot_name_str !PSB
  INTEGER,DIMENSION(nionsample) :: ion_reflection_counts !PSB -> added to track number of reflections per ion
- REAL*8 :: current_x, current_y, current_z !PSB
+ REAL*8 :: curr_x, curr_y, curr_z !PSB
  REAL*8 :: total_mass_lost_this_step ! PSB This variable will hold the sum for the current step
  CHARACTER (LEN=250) :: python_script_path !PSB 
  CHARACTER (LEN=250) :: output_folder!PSB 
@@ -95,7 +97,58 @@ PROGRAM Redepo
  REAL(DP), PARAMETER :: MIN_COORD_VAL = -1.0_DP  !PSB
  REAL(DP), PARAMETER :: MAX_COORD_VAL = 10000.0_DP !PSB
  INTEGER :: max_til_idx
-print *, "Variables have been declared" !PSB
+ ! PSB for updateGeometry
+LOGICAL :: delta_old_exist = .FALSE.  ! PSB for updateGeometry To track if delta_x_old/y_old/z_old are initialized
+REAL*8, DIMENSION(maxnpt) :: delta_x_new, delta_y_new, delta_z_new ! PSB for updateGeometry
+REAL*8 :: meanArea ! PSB for updateGeometry For adaptive refinement
+REAL*8 :: erosion_time      ! Current total erosion time
+    REAL*8, DIMENSION(maxnpt) :: node_mass_loss ! Mass loss per node (proxy for recession)
+
+    ! Local Variables
+    INTEGER :: new_npt                      ! Temporary for new number of points after refinement
+    
+    REAL*8, DIMENSION(3) :: current_node_normal ! Normal vector for current node
+    REAL*8 :: node_recession               ! Recession distance for current node
+    REAL*8 :: pre_sputter_x, pre_sputter_y, pre_sputter_z ! Original node coordinates before this step's movement
+    REAL*8 :: current_x, current_y, current_z ! Current node coordinates (for clarity in calculations)
+    REAL*8 :: coord_diff_x, coord_diff_y, coord_diff_z ! Differences for distance calculation
+    REAL*8 :: distance_sq, min_dist_sq      ! Squared distances for performance
+    INTEGER :: min_dist_idx                ! Index of closest node
+    INTEGER :: rebuildIter                 ! Loop for mesh rebuilds
+    INTEGER :: row_count                   ! Loop for triangle rows
+    INTEGER, DIMENSION(3) :: row_indices   ! Indices of vertices in a triangle
+    REAL*8 :: x_val_1, x_val_2, x_val_3     ! X-coordinates of triangle vertices
+    REAL*8 :: y_val_1, y_val_2, y_val_3     ! Y-coordinates of triangle vertices
+    LOGICAL :: is_on_hypotenuse             ! Flag if triangle is on hypotenuse boundary
+    INTEGER, ALLOCATABLE, DIMENSION(:) :: flagged_elements ! Indices of triangles to remove
+    INTEGER :: value_count                  ! Counter for flagged_elements
+    INTEGER :: new_count                    ! Counter for new_til
+    INTEGER, DIMENSION(3, maxntri) :: new_til ! Temporary storage for new triangulation
+    REAL*8, DIMENSION(maxnpt) :: temp_x, temp_y, temp_z ! For filtering NaNs
+    INTEGER :: temp_count                  ! Counter for temp arrays
+    REAL*8 :: x_orig_hole_bound, y_orig_hypot_bound ! Original boundary coordinates for checks
+    REAL*8, DIMENSION(3) :: current_centroid_coords ! Centroid coordinates of a cell
+    REAL*8, DIMENSION(3,3) :: pointVec      ! Stores 3D coordinates of triangle vertices
+    REAL*8, DIMENSION(3,3) :: joinVectors   ! Vectors forming sides of a triangle
+    REAL*8, DIMENSION(3) :: angles          ! Angles of a triangle
+    REAL*8 :: maxAngle                      ! Maximum angle in a triangle
+    INTEGER :: maxInd                       ! Index of vertex with max angle
+    REAL*8, DIMENSION(3) :: newPoint        ! New point coordinates for refinement
+    REAL*8, DIMENSION(maxnpt) :: distances  ! Distances to current node
+    INTEGER, DIMENSION(maxnpt) :: distSortIndices ! Sorted indices by distance
+    REAL*8 :: sortedDistances_2nd           ! Second smallest distance for coarsening
+    INTEGER :: coarsenCounter              ! Counter for coarsening operations
+    INTEGER :: maxCoarsenCounter           ! Max coarsening operations allowed
+    REAL*8 :: dx_last_x                     ! For calculating a characteristic length
+    REAL*8 :: length_x_grid                 ! A measure of the x-dimension of the grid
+    REAL*8 :: current_node_x, current_node_y, current_node_z ! Current node coordinates from vcl3d
+    INTEGER :: ierr                        ! Error status from dtris2
+    INTEGER, DIMENSION(size(vcl, dim = 2)) :: ind_dtris2 ! Indices for dtris2
+    INTEGER, DIMENSION(3, size(til, dim = 2)) :: tnbr ! Neighbors for dtris2
+    INTEGER, DIMENSION(size(vcl, dim = 2)) :: stack_dtris2 ! Stack for dtris2
+    REAL*8 :: time_step_per_erosion_step ! Conversion factor for node movement
+    LOGICAL :: is_flagged
+    INTEGER :: erosion_step
 
 !-----------------------------------------------------------------------------
 !  Read in CEX ion data
@@ -121,7 +174,7 @@ select case (mesh_data_source)
       !  Generate mesh for initial flat accel grid face
       call mesh_flat_surface(domain, npt, vcl, vcl3d, maxntri, nfacept, accel_thickness)
       call triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
-      
+
       !---------------------------------------------------------------------------
       ! Save the vertex coordinate list and mesh triangle index list for plotting
       !---------------------------------------------------------------------------
@@ -137,14 +190,7 @@ select case (mesh_data_source)
       close(12)
 
       call mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept)
-
-      max_til_idx = 0
-      DO i = 1, ntri
-          max_til_idx = MAX(max_til_idx, til(1,i), til(2,i), til(3,i))
-      END DO
-      PRINT *, "Max index in TIL after boundaries: ", max_til_idx
-      PRINT *, "Current npt (should match max_til_idx) after boundaires: ", npt
-    
+   
       ! Define vertices of each cell
       do icell = 1, ntri
         vert1(:, icell) = vcl3d(:, til(1, icell))  
@@ -163,7 +209,7 @@ select case (mesh_data_source)
       call calc_cell_params(cell(icell), icell)
     end do
     stopTime = dclock()
-    print *, "cell: elapsed time:", stopTime - startTime
+    !print *, "cell: elapsed time:", stopTime - startTime
     startTime = dclock()
     do inode = 1, nfacept
       ! Define coordinates of node from vertex coordinate list
@@ -172,12 +218,12 @@ select case (mesh_data_source)
       call calc_node_params(node(inode), inode, domain, nfacetri, cell)
     end do
     stopTime = dclock()
-    print *, "node: elapsed time:", stopTime - startTime
+    !print *, "node: elapsed time:", stopTime - startTime
 
 case (1)    !  Read in mesh from a restart file
 case (2)    !  Generate a mesh for a v-groove test case
 case default
-  print*, "Improper input for mesh_data_source (must be 0, 1, or 2)"
+  !print*, "Improper input for mesh_data_source (must be 0, 1, or 2)"
 end select
 
 print *, " - - - - Post Boundaries - - - - "
@@ -186,6 +232,14 @@ print *, "Maximum allowed points (maxnpt): ", maxnpt
 print *, "Number of triangles (ntri): ", ntri
 print *, "Number of face points (nfacept): ", nfacept
 print *, "Maximum allowed triangles (maxntri): ", maxntri
+
+ max_til_idx = 0
+      DO i = 1, ntri
+          max_til_idx = MAX(max_til_idx, til(1,i), til(2,i), til(3,i))
+      END DO
+      PRINT *, "Max index in TIL after boundaries: ", max_til_idx
+      PRINT *, "Current npt (should match max_til_idx) after boundaires: ", npt
+ 
 
 !-----------------------------------------------------------------------------
 !  Start simulation of erosion profiles
@@ -238,9 +292,9 @@ CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
 ! ---------------------------------------------------------------------------
 ! EROSION ITERATION LOOP
 ! ---------------------------------------------------------------------------
-print *, "Starting erosion iterations..!"
+!print *, "Starting erosion iterations..!"
 
-EROSION: do erosionStep = 1,8   ! PSB: Iterate beyond 1:5
+EROSION: do erosionStep = 1, 15   ! PSB: Iterate beyond 1:5
     print *, "----------------------------------------------------------------------"   ! PSB
     print *, "                          Erosion Step:", erosionStep                     ! PSB
     erosionTime = erosionStep * erosionStepSize
@@ -276,27 +330,247 @@ EROSION: do erosionStep = 1,8   ! PSB: Iterate beyond 1:5
     end do DOION
     close(112)
 
-    print*, "No. ions that didn't hit anything: ", nlostboys
-    print*, "No. ions that hit the bottom: ", nbottomboys
-    print*, "No. of ions total (including ions that hit bottom or nothin): ", npt
+    !print*, "No. ions that didn't hit anything: ", nlostboys
+    !print*, "No. ions that hit the bottom: ", nbottomboys
+    !print*, "No. of ions total (including ions that hit bottom or nothin): ", npt
 
     !-----------------------------------------------------------------------------
-    !  Geometry update section
+    !  Geometry update section PSB
     !-----------------------------------------------------------------------------
-    do inode = 1, nfacept !PSB Iterate through the number of surface nodes on the mesh subject to sputtering
-      node(inode)%vel = node(inode)%mass_loss/simulation_time/(node(inode)%area * densityCarbon) * node(inode)%normal  ! vel is positive inward 
+
+  !   delta_x_new = 0.0d0
+  !   delta_y_new = 0.0d0
+  !   delta_z_new = 0.0d0
+    do inode = 1, nfacept
+      node(inode)%vel = node(inode)%mass_loss/simulation_time/(node(inode)%area * densityCarbon) * node(inode)%normal  ! vel is positive inward
       call ABintegrate(node(inode)%coords, node(inode)%vel, node(inode)%vel_old, erosionStepSize * 3600, node(inode)%firstStep)
-        vcl3d(:,inode) = node(inode)%coords !PSB update VCL
-        vcl(:,inode) = node(inode)%coords(1:2) !PSB update VCL
-        node(inode)%vel_old = node(inode)%vel !PSB Store the current velocity into the 'old' velocity, which is needed for Adams Bashfort modeling
+      vcl3d(:,inode) = node(inode)%coords
+      vcl(:,inode) = node(inode)%coords(1:2)
+      node(inode)%vel_old = node(inode)%vel
     end do
+  !  DO i = 1, nfacept ! Iterate only over surface nodes
+  !       node_recession = node_mass_loss(i) ! Using node_mass_loss as the recession value
+  !       ! Handle NaN or Inf recession values, setting to 0.0
+  !       ! REWRITE
+  !       IF (IEEE_IS_NAN(node_recession))  THEN !FIX
+  !           node_recession = 0.0d0
+  !           print *, "NaN HERE"
+  !       END IF
 
-    !npt = nfacept
+  !       ! If node is below the thruster grid thickness but is rising upwards, ignore it.
+  !       IF (vcl3d(3,i) <= domain%zmin .AND. node_recession <= 0.0d0) THEN
+  !           ! If the node is at or below the original Z-min (bottom of the grid) AND it's trying to move downwards , then ignore the recession for now.
+  !           ! If node_recession is positive (sputtering), it moves along -normal, inward of material.
+  !           ! This prevents the grid from "growing" into the thruster body from below.
+  !           node_recession = 0.0d0 
+  !           !node_mass_loss(i) = 0.0d0
+  !           print *, vcl3d(3,i)
+  !           print *, (domain%zmax - accel_thickness)
+  !           print *, "Recession at punch through"
+  !       END IF
+
+  !       ! Store current coordinates for Adams-Bashforth integration, these are the 'pre_sputter' coordinates from the MATLAB code
+  !       pre_sputter_x = node(i)%coords(1)
+  !       pre_sputter_y = node(i)%coords(2)
+  !       pre_sputter_z = node(i)%coords(3)
+  !       print *, "-------------------- i:" , i 
+  !       print *, "OG COORDS: " , pre_sputter_x, pre_sputter_y, pre_sputter_z
+
+  !       ! Get node normal vector
+  !       current_node_normal(:) = node(i)%normal(:)
+  !       print *, current_node_normal
+
+  !       ! Calculate new displacement for this step, *change* in position,negative sign recession means moving *against* the normal.
+  !       delta_x_new(i) = -(current_node_normal(1)) * node_recession  ! Line 1224 Matlab PSB
+  !       delta_y_new(i) = -(current_node_normal(2)) * node_recession
+  !       delta_z_new(i) = -(current_node_normal(3)) * node_recession
+  !       print *, "deltas " , delta_z_new(i)
+
+  !       ! Adams-Bashforth 2nd order integration for node movement
+  !       ! The MATLAB code's AB integration applies deltas and displacements
+  !       ! The `ABintegrate` subroutine in `iomesh_mod` is designed for velocity-based integration so instead I apply the Adams-Bashforth logic directly to the coordinates.
+  !       IF (erosion_step == 1 .OR. .NOT. delta_old_exist) THEN
+  !           ! Euler initialization (first step or reset)
+  !           vcl3d(1,i) = pre_sputter_x + delta_x_new(i)
+  !           vcl3d(2,i) = pre_sputter_y + delta_y_new(i)
+  !           vcl3d(3,i) = pre_sputter_z + delta_z_new(i)
+  !           print *, "Entered If : " ,  vcl3d(3,i)
+  !       ELSE
+  !           ! Adams-Bashforth 2nd order (using previous step's displacement)
+  !           vcl3d(1,i) = pre_sputter_x + 1.5d0 * delta_x_new(i) - 0.5d0 * delta_x_old(i)
+  !           vcl3d(2,i) = pre_sputter_y + 1.5d0 * delta_y_new(i) - 0.5d0 * delta_y_old(i)
+  !           vcl3d(3,i) = pre_sputter_z + 1.5d0 * delta_z_new(i) - 0.5d0 * delta_z_old(i)
+  !           print *, "Entered Else : " ,  vcl3d(3,i)
+  !       END IF
+
+  !       ! Update node coordinates as well, so node data structure is consistent
+  !       node(i)%coords(1) = vcl3d(1,i)
+  !       node(i)%coords(2) = vcl3d(2,i)
+  !       node(i)%coords(3) = vcl3d(3,i)
+  !       print *, "i:" , i, "POST AB INTEG COORDS" , node(i)%coords(1), node(i)%coords(2) , node(i)%coords(3)
+  !   END DO
+
+  !   ! Store current delta values for the next step's Adams-Bashforth calculation
+  !   delta_x_old(:) = delta_x_new(:)
+  !   delta_y_old(:) = delta_y_new(:)
+  !   delta_z_old(:) = delta_z_new(:)
+  !   delta_old_exist = .TRUE.
+
+    ! Filter out NaN values from node coordinates and re-pack them.
+    temp_count = 0
+    DO i = 1, npt ! Iterate over all points, not just nfacept, to clean up new points too
+        ! Check for NaNs using IS_NAN intrinsic function
+        IF (.NOT. IEEE_IS_NAN(vcl3d(1,i)) .AND. .NOT. IEEE_IS_NAN(vcl3d(2,i)) .AND. .NOT. IEEE_IS_NAN(vcl3d(3,i))) THEN
+            temp_count = temp_count + 1
+            temp_x(temp_count) = vcl3d(1,i)
+            temp_y(temp_count) = vcl3d(2,i)
+            temp_z(temp_count) = vcl3d(3,i)
+        END IF
+    END DO
+    ! Update vcl3d and node coords with cleaned values
+    npt = temp_count
+    DO i = 1, npt
+        vcl3d(1,i) = temp_x(i)
+        vcl3d(2,i) = temp_y(i)
+        vcl3d(3,i) = temp_z(i)
+        node(i)%coords(1) = temp_x(i)
+        node(i)%coords(2) = temp_y(i)
+        node(i)%coords(3) = temp_z(i)
+    END DO
+
+    ! Update VCL2d as well
+    DO i = 1, npt
+        vcl(1,i) = vcl3d(1,i)
+        vcl(2,i) = vcl3d(2,i)
+    END DO
+
     !call triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
     !call mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept)
-       !---------------------------------------------------------------------------
-        ! Save the vertex coordinate list and mesh triangle index list for plotting
-        !---------------------------------------------------------------------------
+
+    ! Clean up the meshing: Assess the triangulation for improper elements
+    ALLOCATE(flagged_elements(maxntri)) ! Allocate dynamically or use a fixed large size
+    flagged_elements = 0 ! Initialize to 0 or some indicator that it's not flagged
+    value_count = 0
+
+    ! Re-evaluate `nfacetri` based on the new `ntri` from `dtris2`.
+    ! We will store valid triangles in `new_til` and then copy back to `til`.
+    new_count = 0
+    DO i = 1, ntri
+        row_indices = til(:,i)
+        ! Check if the indices are within bounds of `vcl3d`. If `npt` has decreased, some `til` entries might point to old, removed indices. This check is crucial.
+        IF (row_indices(1) > npt .OR. row_indices(2) > npt .OR. row_indices(3) > npt) THEN
+            CONTINUE ! Skip this triangle, its vertices are no longer valid 
+            ! PSB BUT HOW DOES CONTINUING MKAE ITS VERTICES INVALID WHAT WILL THE CODE DO
+        END IF
+
+        x_val_1 = vcl3d(1, row_indices(1))
+        x_val_2 = vcl3d(1, row_indices(2))
+        x_val_3 = vcl3d(1, row_indices(3))
+        y_val_1 = vcl3d(2, row_indices(1))
+        y_val_2 = vcl3d(2, row_indices(2))
+        y_val_3 = vcl3d(2, row_indices(3))
+
+        ! Check if an element is composed entirely of nodes along the hypotenuse
+        is_on_hypotenuse = (ABS(y_val_1 - (x_val_1 * TAN_30_DEG)) < TOL_PROF) .AND. (ABS(y_val_2 - (x_val_2 * TAN_30_DEG)) < TOL_PROF) .AND. (ABS(y_val_3 - (x_val_3 * TAN_30_DEG)) < TOL_PROF)
+          IF (is_on_hypotenuse) THEN
+            value_count = value_count + 1
+            flagged_elements(value_count) = i ! Store the index of the flagged triangle
+         END IF
+  END DO
+
+  ! Store all proper elements into new_til
+  new_count = 0
+  DO i = 1, ntri
+    ! Check if the current triangle index 'i' is in the list of flagged elements
+        is_flagged = .FALSE.
+        DO j = 1, value_count
+            IF (flagged_elements(j) == i) THEN
+                is_flagged = .TRUE.
+                EXIT
+            END IF
+        END DO
+
+        IF (.NOT. is_flagged) THEN
+            new_count = new_count + 1
+            new_til(:, new_count) = til(:, i)
+        END IF
+    END DO
+
+  DEALLOCATE(flagged_elements)
+
+  ! Replace the original triangulation with its modified counterpart
+  ntri = new_count
+  DO i = 1, ntri
+    til(:, i) = new_til(:, i)
+  END DO
+  nfacetri = ntri ! Update nfacetri to reflect the new number of surface triangles
+
+  ! Now, update cell parameters and node parameters for the new mesh
+  ! Recalculate cell parameters
+    DO i = 1, ntri
+        cell(i)%til(:) = til(:, i)
+        cell(i)%vert1(:) = vcl3d(:, cell(i)%til(1))
+        cell(i)%vert2(:) = vcl3d(:, cell(i)%til(2))
+        cell(i)%vert3(:) = vcl3d(:, cell(i)%til(3))
+        CALL calc_cell_params(cell(i), i)
+    END DO
+
+    ! Recalculate node parameters for surface nodes
+    DO i = 1, nfacept ! Only surface nodes have these properties
+        node(i)%coords(:) = vcl3d(:, i)
+        CALL calc_node_params(node(i), i, domain, nfacetri, cell)
+    END DO
+
+
+
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    
+    ! do inode = 1, nfacept !PSB 
+    !   node(inode)%vel = node(inode)%mass_loss/simulation_time/(node(inode)%area * densityCarbon) * node(inode)%normal  ! vel is positive inward 
+    !   call ABintegrate(node(inode)%coords, node(inode)%vel, node(inode)%vel_old, erosionStepSize * 3600, node(inode)%firstStep)
+    !     vcl3d(:,inode) = node(inode)%coords !PSB update VCL
+    !     vcl(:,inode) = node(inode)%coords(1:2) !PSB update VCL
+    !     node(inode)%vel_old = node(inode)%vel !PSB Store the current velocity into the 'old' velocity, which is needed for Adams Bashfort modeling
+    ! end do
+
+    ! do icell = 1, ntri
+    !   ! Define the triangle incidence list for cell
+    !   cell(icell)%til(:) = til(:,icell)
+    !   ! Define vertices of cell
+    !   cell(icell)%vert1(:) = vcl3d(:,cell(icell)%til(1))
+    !   cell(icell)%vert2(:) = vcl3d(:,cell(icell)%til(2))
+    !   cell(icell)%vert3(:) = vcl3d(:,cell(icell)%til(3))
+    !   ! Calculate other cell parameters
+    !   call calc_cell_params(cell(icell), icell)
+    ! end do
+    ! do inode = 1,nfacept
+    !   ! Define coordinates of node from vertex coordinate list
+    !   node(inode)%coords(:) = vcl3d(:,inode)
+    !   ! Calculate other node parameters
+    !   call calc_node_params(node(inode), inode, domain, nfacetri, cell)
+    ! end do
+
+    max_til_idx = 0
+    DO i = 1, ntri
+        max_til_idx = MAX(max_til_idx, til(1,i), til(2,i), til(3,i))
+    END DO
+    !PRINT *, "Max index in TIL after boundaries EROSON SETP 1: ", max_til_idx
+    !PRINT *, "Current npt (should match max_til_idx) after boundaires: EROSON SETP 1 ", npt
+
+    !npt = nfacept
+    !print *, "npt before triang surf is ", npt
+    !print *, "ntri before triang surf is ", ntri
+    !nfacept = npt
+    !call triangulate_surface(domain, npt, vcl, vcl3d, ntri, til, nfacetri, cell)
+    ! print *, "npt after triang surf is ", npt
+    !print *, "ntri after triang surf is ", ntri
+    !call mesh_boundaries(domain, npt, vcl, vcl3d, ntri, til, cell, nfacept)
+    !print *, "npt after mesh_boundaries is ", npt
+    !print *, "ntri after mesh_boundaries is ", ntri
+    
+    !---------------------------------------------------------------------------
+    ! Save the vertex coordinate list and mesh triangle index list for plotting
+    !---------------------------------------------------------------------------
     !     open(13, FILE = 'VCL') 
     !     do i = 1, npt
     !       write(13,*) i, vcl(1,i), vcl(2,i)
@@ -309,23 +583,6 @@ EROSION: do erosionStep = 1,8   ! PSB: Iterate beyond 1:5
     !         end do
     !         close(12)
 
-
-    do icell = 1, ntri
-      ! Define the triangle incidence list for cell
-      cell(icell)%til(:) = til(:,icell)
-      ! Define vertices of cell
-      cell(icell)%vert1(:) = vcl3d(:,cell(icell)%til(1))
-      cell(icell)%vert2(:) = vcl3d(:,cell(icell)%til(2))
-      cell(icell)%vert3(:) = vcl3d(:,cell(icell)%til(3))
-      ! Calculate other cell parameters
-      call calc_cell_params(cell(icell), icell)
-    end do
-    do inode = 1,nfacept
-      ! Define coordinates of node from vertex coordinate list
-      node(inode)%coords(:) = vcl3d(:,inode)
-      ! Calculate other node parameters
-      call calc_node_params(node(inode), inode, domain, nfacetri, cell)
-    end do
 
     ! inodelooptwo: do inode = 1, nfacept 
     !   node(inode)%vel = node(inode)%mass_loss/simulation_time/(node(inode)%area * densityCarbon) * node(inode)%normal  
@@ -370,46 +627,41 @@ EROSION: do erosionStep = 1,8   ! PSB: Iterate beyond 1:5
     !     node(i_clear)%normal = 0.0_dp 
     !   END DO 
     ! end do inodelooptwo
-
-    max_til_idx = 0
-    DO i = 1, ntri
-        max_til_idx = MAX(max_til_idx, til(1,i), til(2,i), til(3,i))
-    END DO
-    PRINT *, "Max index in TIL after boundaries EROSON SETP 1: ", max_til_idx
-    PRINT *, "Current npt (should match max_til_idx) after boundaires: EROSON SETP 1 ", npt
    
     !---------------------------------------------------------------------------
     ! PSB Save 3D mesh data for Python plotting (now reads VCL3D and Triangles directly)
     !---------------------------------------------------------------------------
     ! No need to open/write mesh_points_3d.txt and mesh_triangles_3d.txt anymore
     ! Since the Python script will read VCL3D and Triangles
-
-plot_subfolder = 'mesh_plots'
-OPEN(UNIT=13, FILE='VCL3D', ACTION='WRITE') 
-    WRITE(13, '(A)') '# ErosionTime, X, Y, Z'
-    DO inode = 1, nfacept 
-    current_x = node(inode)%coords(1) 
-    current_y = node(inode)%coords(2) 
-    current_z = node(inode)%coords(3)
-    WRITE(13, '(F10.2, "," , ES25.18, ",", ES25.18, ",", ES25.18)')erosionTime, current_x, current_y, current_z
-  END DO 
-  CLOSE(13) 
-   CALL EXECUTE_COMMAND_LINE("mkdir -p " // TRIM(plot_subfolder), wait=.true., exitstat=j)
-   IF (j /= 0) THEN
-       PRINT *, "Warning: Could not create directory ", TRIM(plot_subfolder), ". Error code: ", j
-       PRINT *, "Plot will be saved in the current directory instead."
-       plot_subfolder = '.'
-   END IF
-   WRITE(step_str, '(I0)') erosionStep ! Convert erosionStep to string
-   plot_name_str = "post_bounds_remesh_" // TRIM(step_str) ! Identifier for the plot filename
-   ! Command to call the Python script, passing the output folder and plot identifier
-   command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(plot_name_str)
-   CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
-! ---------------------------------------------------------------------------
-
+    plot_subfolder = 'mesh_plots'
+    OPEN(UNIT=13, FILE='VCL3D', ACTION='WRITE') 
+        WRITE(13, '(A)') '# ErosionTime, X, Y, Z'
+        DO inode = 1, nfacept 
+          curr_x = node(inode)%coords(1) 
+          curr_y = node(inode)%coords(2) 
+          curr_z = node(inode)%coords(3)
+          WRITE(13, '(F10.2, "," , ES25.18, ",", ES25.18, ",", ES25.18)')erosionTime, curr_x, curr_y, curr_z
+        END DO 
+    CLOSE(13) 
+    CALL EXECUTE_COMMAND_LINE("mkdir -p " // TRIM(plot_subfolder), wait=.true., exitstat=j)
+    IF (j /= 0) THEN
+        PRINT *, "Warning: Could not create directory ", TRIM(plot_subfolder), ". Error code: ", j
+        PRINT *, "Plot will be saved in the current directory instead."
+        plot_subfolder = '.'
+    END IF
+    WRITE(step_str, '(I3.3)') erosionStep ! Convert erosionStep to string
+    plot_name_str = "post_bounds_remesh_" // TRIM(step_str) ! Identifier for the plot filename
+    ! Command to call the Python script, passing the output folder and plot identifier
+    command_string = "python plot_mesh.py " // TRIM(plot_subfolder) // " " // TRIM(plot_name_str)
+    CALL EXECUTE_COMMAND_LINE(TRIM(command_string), wait=.true.)
+    
+    print *, " - - - - Post REMESH - - - - "
+    print *, "Number of points (npt): ", npt
+    print *, "Maximum allowed points (maxnpt): ", maxnpt
+    print *, "Number of triangles (ntri): ", ntri
+    print *, "Number of face points (nfacept): ", nfacept
+    print *, "Maximum allowed triangles (maxntri): ", maxntri
 END DO EROSION
-
-
 
 contains
 subroutine randperm(x, n, k)
@@ -517,7 +769,7 @@ RECURSIVE SUBROUTINE trace_ion_path(iion_idx, current_refl_count, &
     INTEGER :: n1_idx, n2_idx, n3_idx
 
     ! Debug print
-    print *, "trace_ion_path was called"
+    ! print *, "trace_ion_path was called"
 
     ! Base Case 1: Exceeded maximum reflections
     IF (current_refl_count >= max_reflections) THEN
@@ -535,7 +787,7 @@ RECURSIVE SUBROUTINE trace_ion_path(iion_idx, current_refl_count, &
 
     num_hits = COUNT(intersect)
     ! Debug print
-    print *, "numhits for " , iion_idx ," is ", num_hits
+    ! print *, "numhits for " , iion_idx ," is ", num_hits
     ! Find the closest intersected triangle.
     ! Assuming triangle_ray_intersection or a subsequent sort ensures impact_tri_arr(1) is the closest.
     ! A more robust check would be to find the minimum 't' among all true 'intersect' entries.
@@ -589,7 +841,7 @@ RECURSIVE SUBROUTINE trace_ion_path(iion_idx, current_refl_count, &
         node(til(1,impact_cell))%mass_loss = node(til(1,impact_cell))%mass_loss + (1 - u(impact_cell) - v(impact_cell)) * mass_loss
         sum = node(til(2,impact_cell))%mass_loss + node(til(3,impact_cell))%mass_loss + node(til(1,impact_cell))%mass_loss
 
-        PRINT*, "Sputtered"
+        !PRINT*, "Sputtered"
         PRINT*, "Sputtered | Ion Index:", iion_idx, "Reflections:", current_refl_count, &
         "| Node", til(1,impact_cell), "Loss:", (1 - u(impact_cell) - v(impact_cell)) * mass_loss, &
         "| Node", til(2,impact_cell), "Loss:", u(impact_cell) * mass_loss, &
@@ -640,9 +892,5 @@ RECURSIVE SUBROUTINE trace_ion_path(iion_idx, current_refl_count, &
         RETURN ! Exit this recursive call (the result comes from the deeper call)
     END IF
   END SUBROUTINE trace_ion_path
-
-  
-
-
 
   end program Redepo

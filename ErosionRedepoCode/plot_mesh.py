@@ -82,7 +82,6 @@ def plot_3d_mesh(points_file, triangles_file, output_folder=".", file_identifier
 
         ax.set_xlabel('X (mm)')
         ax.set_ylabel('Y (mm)')
-        ax.set_zlabel('Z (mm)')
         ax.set_title(f'3D Mesh Plot ({file_identifier_str})')
         ax.view_init(elev=30)
 
@@ -94,15 +93,15 @@ def plot_3d_mesh(points_file, triangles_file, output_folder=".", file_identifier
         # Dynamically set Z-axis limits based on the data 
         z_min = np.min(points[:, 2]) 
         z_max = np.max(points[:, 2]) 
+        ax.set_zlabel(f'Z (mm) Range: {z_min:.10f} to {z_max:.10f}', labelpad=20)
         # Add a small buffer to the min/max for better visualization 
         z_range = z_max - z_min 
-        z_buffer = z_range * 4 # 400% buffer 
+        z_buffer = z_range * 1 # 100% buffer 
         if z_buffer == 0: 
             # Handle cases where all Z values are identical (e.g., initial flat mesh) 
             z_buffer = 0.001 # A small default buffer if range is zero 
         ax.set_zlim([z_min - z_buffer, z_max + z_buffer])
 
-  
         output_filename = os.path.join(output_folder, f"plot_{file_identifier_str}.png")
         plt.savefig(output_filename, dpi=300, bbox_inches='tight')
         print(f"Plot saved as {output_filename}")
