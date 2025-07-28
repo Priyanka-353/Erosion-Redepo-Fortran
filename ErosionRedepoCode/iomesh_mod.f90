@@ -78,8 +78,8 @@ module iomesh_mod
   real*8 :: simulation_time
   integer :: npandgions
 
-  integer, parameter :: maxnpt = 700 ! PSB CHANGED 300 is maximum number of vertices in mesh--change if necessary
-  integer, parameter :: maxntri = 1600 ! PSB CHANGED 600 is maximum number of triangles in mesh--change if necessary
+  integer, parameter :: maxnpt = 1000 ! PSB CHANGED 300 is maximum number of vertices in mesh--change if necessary
+  integer, parameter :: maxntri = 5000 ! PSB CHANGED 600 is maximum number of triangles in mesh--change if necessary
   integer, parameter :: maxnray = 2030 ! max number of Lebedev rays
   type (node_type), dimension(maxnpt) :: node
   type (cell_type), dimension(maxntri) :: cell
@@ -330,6 +330,7 @@ module iomesh_mod
 
       !---------------------------------------------------------------------------
       ! Define points along major and minor walls to build initial grid
+   
       !---------------------------------------------------------------------------
       dx2 = (domain%xmax - domain%hole_diam/2.0d0)/(x2numpnts - 0.25d0)
       x1numpnts = NINT((domain%hole_diam/2.0d0)/dx2)
@@ -349,6 +350,7 @@ module iomesh_mod
       end do
       !---------------------------------------------------------------------------
       ! Define initial mesh on webbing
+      
       !---------------------------------------------------------------------------
       npt = 0
       do i = 1, (x1numpnts + x2numpnts)
@@ -364,6 +366,7 @@ module iomesh_mod
       end do
       !---------------------------------------------------------------------------
       ! Define mesh points on edge of hole
+
       !---------------------------------------------------------------------------
       ! PSB adjusted numcircpts calculation for more points around the hole
       numcircpts = NINT(domain%hole_diam * pi / 6.0d0 / (0.5d0 * dx2)) 
@@ -378,6 +381,7 @@ module iomesh_mod
       end do
       !---------------------------------------------------------------------------
       ! Add mesh points at midpoints of edges along major wall and hypotenuse
+  
       !---------------------------------------------------------------------------
       do i = 1, x2numpnts-1
         npt = npt + 1
@@ -396,6 +400,8 @@ module iomesh_mod
     REMESH_LOOP: DO remeshIters = 1, REMESH_ITERS !PSB - Resmesh iterations
         !---------------------------------------------------------------------------
         ! Create initial vertex coordinate list and index
+      print *, npt
+     print *, ntri
         !---------------------------------------------------------------------------
         do i = 1, npt
           vcl(1,i) = vcl3d(1,i)
@@ -404,11 +410,13 @@ module iomesh_mod
         end do
         !---------------------------------------------------------------------------
         ! Generate initial Delaunay triangulation of mesh points
+
         !---------------------------------------------------------------------------
         call dtris2 (npt, npt, vcl, ind, numtri, tilist, tnbr, stack, ierr)
         !---------------------------------------------------------------------------
         ! Refine mesh around pits and grooves region (add points at centroids of
         ! triangular elements from initial triangulation)
+
         !---------------------------------------------------------------------------
         NUMTRILOOP: do i = 1,numtri
           centroid(1) = (vcl(1,tilist(1,i)) + vcl(1,tilist(2,i)) + vcl(1,tilist(3,i)))/3.0d0
@@ -475,14 +483,15 @@ module iomesh_mod
       integer, dimension(3, size(til, dim = 2)) :: tnbr, new_til
       integer, dimension(size(vcl, dim = 2)) :: stack
       logical :: isOnWall_major, isOnWall_minor, isOnWall_hypot, isInHole
-      print*, "triangulation routine: npt, vcl3d(226)", npt,vcl3d(:,226)
+      ! print*, "triangulation routine: npt, vcl3d(226)", npt,vcl3d(:,226)
       !---------------------------------------------------------------------------
       ! Generate the final Delaunay triangulation
       !---------------------------------------------------------------------------
       do i = 1, npt
         ind(i) = i
       end do
-      call dtris2 (npt, npt, vcl, ind, ntri, til, tnbr, stack, ierr)
+      call dtris2 (npt, maxnpt, vcl, ind, ntri, til, tnbr, stack, ierr)
+
       !---------------------------------------------------------------------------
       ! Clean up the mesh (remove bad triangles in hole or coincident with boundaries)
       !---------------------------------------------------------------------------
@@ -704,7 +713,7 @@ module iomesh_mod
       !---------------------------------------------------------------------------
       ! Add vertices and triangles for side walls and top
       !---------------------------------------------------------------------------
-      ! Define vertices on front major wall (tri and rect domains)
+      !Define vertices on front major wall (tri and rect domains)
       npt = npt + 1                 ! Point 1
       vcl3d(1,npt) = domain%xmin
       vcl3d(2,npt) = domain%ymin
@@ -721,7 +730,7 @@ module iomesh_mod
       vcl3d(1,npt) = domain%xmin
       vcl3d(2,npt) = domain%ymin
       vcl3d(3,npt) = domain%zmax
-      ! Define vertices on corner of hypotenuse wall or back major wall and right minor wall (tri and rect domains)
+      !Define vertices on corner of hypotenuse wall or back major wall and right minor wall (tri and rect domains)
       npt = npt + 1                 ! Point 5
       vcl3d(1,npt) = domain%xmax
       vcl3d(2,npt) = domain%ymax
