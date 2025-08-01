@@ -52,13 +52,13 @@ module iomesh_mod
     real*8, dimension(3) :: coords
     real*8, dimension(3) :: normal
     real*8 :: area  ! area associated with node (1/3 of area of cells containing node)
-    integer, dimension(12) :: in_cells
+    integer, dimension(30) :: in_cells
     integer :: on_bndry   !  0 = none, 1 = hole, 2 = major wall, 3 = right minor wall,
         !  4 = hypotenuse or upper major wall, 5 = left minor wall
     integer :: on_corner  !  0 = none, 1 = lower left (major left minor intersection),
         !  2 = lower right (major minor intersection), 3 = upper right (minor-hypotenuse intersection
         !  or upper major right minor intersection), 4 = upper left (upper major left minor intersection)
-    real*8, dimension(12) :: cell_angle
+    real*8, dimension(35) :: cell_angle
     real*8 :: mass_loss  !  mass loss assigned the node in a given time step
     real*8, dimension(3) :: vel  !  current node recession velocity
     real*8, dimension(3) :: vel_old   ! node recession velocity at previous time step
@@ -491,6 +491,9 @@ module iomesh_mod
         ind(i) = i
       end do
       call dtris2 (npt, maxnpt, vcl, ind, ntri, til, tnbr, stack, ierr)
+      IF (ierr /= 0) THEN
+        print *, "ERROR IN DTRIS2 - ERROR NUMBER " , ierr
+      END IF
 
       !---------------------------------------------------------------------------
       ! Clean up the mesh (remove bad triangles in hole or coincident with boundaries)
@@ -942,6 +945,7 @@ module iomesh_mod
       !---------------------------------------------------------------------------
       ! Determine if node is on edges or corners of domain
       !---------------------------------------------------------------------------
+      print *, "DEBUGONE"
       node%on_bndry = 0      ! initialize to zero (assume internal node)
       node%on_corner = 0
       if (abs(node%coords(2) - domain%ymin) <= 1d-4) then
@@ -996,6 +1000,7 @@ module iomesh_mod
       !---------------------------------------------------------------------------
       ! Identify which cells contain node and store the associated angles and areas
       !---------------------------------------------------------------------------
+      print *, "DEBUGTWO"
       node%in_cells = 0          ! Set in_cells to all zeroes initially
       node%area = 0              ! Set area sum to zero initially
       member = 1
@@ -1013,15 +1018,21 @@ module iomesh_mod
       !---------------------------------------------------------------------------
       ! Calculate the node normal vector as the angle-weighted average of surrounding cells
       !---------------------------------------------------------------------------
+      print *, "DEBUGTHREE"
       if (node%on_corner > 0) then
+        print *, "DEBUGTHREEA"
         node%normal(:) = (/ 0.0d0, 0.0d0, 1.0d0 /)
       else
         member = 1
         normal(:) = 0.0d0
+        print *, "DEBUGTHREEB"
         do while (node%in_cells(member) /= 0)
+          print *, "DEBUGTHREEC"
+          print *, "Attempting to access cell " , nodenum , member, normal(:) , node%cell_angle(member) , cell(node%in_cells(member))%normal(:)
           normal(:) = normal(:) + node%cell_angle(member) * cell(node%in_cells(member))%normal(:)
           member = member + 1
         end do
+        print *, "DEBUGTHREED"
         node%normal(:) = normal(:)/norm2(normal(:))
       end if
       !---------------------------------------------------------------------------
@@ -1029,6 +1040,7 @@ module iomesh_mod
       !---------------------------------------------------------------------------
       ! node%vel = (/ 0.0d0, 0.0d0, 0.0d0 /)
       ! node%vel_old = (/ 0.0d0, 0.0d0, 0.0d0 /)
+      print *, "DEBUGTHREED"
       node%mass_loss = 0.0d0
       ! node%firstStep = 1
     end subroutine calc_node_params

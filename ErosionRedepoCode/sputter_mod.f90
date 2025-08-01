@@ -359,8 +359,6 @@ module sputter_mod
     integer, intent(in) :: ion_idx_in ! New Ion index to be saved
 
     ! Debug print
-    print *, "triangle ray intersection called for " , ion_idx_in
-
     if (present(epsIn)) then
       eps = epsIn
     else
